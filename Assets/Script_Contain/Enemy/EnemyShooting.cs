@@ -4,9 +4,9 @@ public class EnemyShooting : MonoBehaviour
 {
     // ==================== REFERENCES ====================
     [Header("References")]
-    public Transform rotationPoint;
-    public GameObject bullet;
-    public Transform bulletTransform;
+    public Transform rotationPoint;      // Kéo khẩu súng (Gun) vào đây
+    public GameObject bullet;            // Prefab đạn
+    public Transform bulletTransform;    // Kéo Muzzle (đầu nòng) vào đây
 
     [Header("Muzzle Offset")]
     public float muzzleOffset = 0.5f;
@@ -36,8 +36,8 @@ public class EnemyShooting : MonoBehaviour
     // ==================== AIMING ====================
     [Header("Aiming")]
     [Tooltip("Bù hướng sprite súng. Đổi 90 → -90 → 180 → 0 nếu súng xoay sai")]
-    public float rotationOffset = 90f;   // ✅ ĐÃ SỬA: từ -90f thành 90f
-    public float rotationSpeed = 0f;
+    public float rotationOffset = 90f;
+    public float rotationSpeed = 15f; // Tốc độ xoay nòng súng mượt mà
 
     // ==================== DEBUG ====================
     [Header("Debug")]
@@ -136,24 +136,14 @@ public class EnemyShooting : MonoBehaviour
     // ==================== DETECTION & AIMING ====================
     void HandleDetection()
     {
-        if (playerTarget == null)
-        {
-            LogPeriodic($"❌ playerTarget NULL");
-            return;
-        }
-        if (bulletTransform == null)
-        {
-            LogPeriodic($"❌ bulletTransform NULL");
-            return;
-        }
+        if (playerTarget == null || bulletTransform == null || rotationPoint == null) return;
 
         Vector3 toPlayer = playerTarget.position - rotationPoint.position;
         toPlayer.y = 0f;
         float distanceToPlayer = toPlayer.magnitude;
 
         bool wasInRange = playerInRange;
-        playerInRange = distanceToPlayer <= detectionRange
-                        && toPlayer.sqrMagnitude > 0.001f;
+        playerInRange = distanceToPlayer <= detectionRange && toPlayer.sqrMagnitude > 0.001f;
 
         if (playerInRange != wasInRange)
         {
@@ -163,24 +153,27 @@ public class EnemyShooting : MonoBehaviour
                 Debug.Log($"<color=orange>[{name}] ⚠ Player RA khỏi tầm bắn (dist={distanceToPlayer:F2}, range={detectionRange})</color>");
         }
 
+        // NGOÀI TẦM: Súng tự động trả về hướng thẳng (0 độ so với thân Enemy)
         if (!playerInRange)
         {
+            Quaternion defaultRot = Quaternion.Euler(0f, 0f, 0f); // Trả súng về thẳng
+            rotationPoint.localRotation = Quaternion.Slerp(rotationPoint.localRotation, defaultRot, rotationSpeed * Time.deltaTime);
+            
             hasReacted = false;
             reactionTimer = 0f;
             LogPeriodic($"Ngoài tầm: dist={distanceToPlayer:F2}, range={detectionRange}");
             return;
         }
 
-        // ✅ Tính góc — Atan2(x, z) + rotationOffset (đã đổi thành +90)
+        // TRONG TẦM: Xoay nòng súng về phía Player
         float targetAngle = Mathf.Atan2(toPlayer.x, toPlayer.z) * Mathf.Rad2Deg + rotationOffset;
         Quaternion targetRot = Quaternion.Euler(0f, targetAngle, 0f);
 
-        if (rotationSpeed > 0f)
-            rotationPoint.rotation = Quaternion.RotateTowards(
-                rotationPoint.rotation, targetRot, rotationSpeed * Time.deltaTime);
-        else
-            rotationPoint.rotation = targetRot;
+        // Xoay mượt khẩu súng
+        rotationPoint.rotation = Quaternion.RotateTowards(
+            rotationPoint.rotation, targetRot, rotationSpeed * Time.deltaTime);
 
+        // Logic reaction
         if (!hasReacted)
         {
             reactionTimer += Time.deltaTime;
@@ -194,6 +187,7 @@ public class EnemyShooting : MonoBehaviour
                 return;
         }
 
+        // Bắn
         if (canFire && !isBursting)
         {
             canFire = false;
@@ -226,8 +220,7 @@ public class EnemyShooting : MonoBehaviour
     {
         if (!playerInRange)
         {
-            currentSpread = Mathf.MoveTowards(
-                currentSpread, baseSpread, spreadDecreaseRate * Time.deltaTime);
+            currentSpread = Mathf.MoveTowards(currentSpread, baseSpread, spreadDecreaseRate * Time.deltaTime);
         }
     }
 
@@ -281,36 +274,19 @@ public class EnemyShooting : MonoBehaviour
         fireCount++;
         Debug.Log($"<color=yellow>[{name}] 🔫 FireBullet lần {fireCount}</color>");
 
-        if (bullet == null)
-        {
-            Debug.LogError($"[{name}] ❌ FireBullet: bullet prefab NULL!");
-            return;
-        }
-        if (bulletTransform == null)
-        {
-            Debug.LogError($"[{name}] ❌ FireBullet: bulletTransform NULL!");
-            return;
-        }
+        if (bullet == null || bulletTransform == null) return;
 
         float randomSpread = Random.Range(-currentSpread, currentSpread);
+        Quaternion finalRotation = bulletTransform.rotation * Quaternion.Euler(0f, randomSpread, 0f);
 
-        // ✅ ĐÃ DỌN: bỏ dòng Quaternion.Euler(0,0,0) thừa
-        Quaternion finalRotation = bulletTransform.rotation
-                                 * Quaternion.Euler(0f, randomSpread, 0f);
-
-        Vector3 spawnPos = bulletTransform.position
-                         + bulletTransform.forward * muzzleOffset;
-
-        Debug.Log($"[{name}] Spawn đạn tại {spawnPos}, rotation Y={finalRotation.eulerAngles.y:F1}");
+        Vector3 spawnPos = bulletTransform.position + bulletTransform.forward * muzzleOffset;
 
         GameObject spawned = Instantiate(bullet, spawnPos, finalRotation);
-        Debug.Log($"[{name}] ✅ Đã spawn: {spawned.name}");
 
         Rigidbody rb = spawned.GetComponent<Rigidbody>();
         if (rb != null)
         {
             rb.linearVelocity = spawned.transform.forward * bulletSpeed;
-            Debug.Log($"[{name}] Gán Rigidbody.velocity = forward * {bulletSpeed}");
         }
         else
         {
@@ -318,11 +294,6 @@ public class EnemyShooting : MonoBehaviour
             if (bulletScript != null)
             {
                 bulletScript.speed = bulletSpeed;
-                Debug.Log($"[{name}] Gán Bullet.speed = {bulletSpeed}");
-            }
-            else
-            {
-                Debug.LogWarning($"[{name}] ⚠ Đạn không có Rigidbody cũng không có script Bullet → đạn sẽ đứng yên!");
             }
         }
 
@@ -359,11 +330,8 @@ public class EnemyShooting : MonoBehaviour
         if (bulletTransform != null)
         {
             Gizmos.color = Color.yellow;
-            Vector3 spawnPos = bulletTransform.position
-                             + bulletTransform.forward * muzzleOffset;
+            Vector3 spawnPos = bulletTransform.position + bulletTransform.forward * muzzleOffset;
             Gizmos.DrawWireSphere(spawnPos, 0.15f);
-
-            Gizmos.color = Color.yellow;
             Gizmos.DrawLine(bulletTransform.position, spawnPos);
 
             Gizmos.color = Color.blue;

@@ -1,190 +1,158 @@
 using System.Collections;
 using UnityEngine;
+using UnityEngine.AI; // Thêm thư viện NavMesh
 
 public class EnemyController : MonoBehaviour
 {
-    // ==================== MOVEMENT ====================
     [Header("Movement")]
     [SerializeField] private float speed = 3f;
     [SerializeField] private float lineOfSight = 6f;
 
-    // ==================== WANDER ====================
     [Header("Wander")]
     public Transform moveSpots;
     [SerializeField] private float startWaitTime = 3f;
     [SerializeField] private float minX = -10f, maxX = 10f;
     [SerializeField] private float minZ = -10f, maxZ = 10f;
 
-    // ==================== TARGET ====================
     [Header("Target")]
     public Transform player;
 
-    // ==================== HIT ====================
     [Header("Hit Settings")]
     [SerializeField] private int maxHits = 3;
     [SerializeField] private float iframeDuration = 0.2f;
 
-    // ==================== PRIVATE ====================
-    private Rigidbody rb;
+    private NavMeshAgent agent; // Thay thế Rigidbody bằng NavMeshAgent
     private Renderer rend;
     private Collider col;
     private Color originalColor;
 
-    private Vector3 moveDirection;
     private float waitTime;
-
     private int currentHits = 0;
     private bool isInvincible = false;
     private bool isDead = false;
 
-    // ==================== PUBLIC API (cho EnemyShooting) ====================
     public bool IsDead => isDead;
     public Transform Player => player;
 
-    // ==================== START ====================
     void Start()
     {
-        rb = GetComponent<Rigidbody>();
+        agent = GetComponent<NavMeshAgent>();
         rend = GetComponent<Renderer>();
         col = GetComponent<Collider>();
 
-        if (rb == null)
+        if (agent == null)
         {
-            Debug.LogError($"[{name}] EnemyController cần Rigidbody!");
+            Debug.LogError($"[{name}] EnemyController cần NavMeshAgent!");
             enabled = false;
             return;
         }
 
-        // Khóa trục Y và rotation X/Z
-        rb.constraints = RigidbodyConstraints.FreezePositionY
-                       | RigidbodyConstraints.FreezeRotationX
-                       | RigidbodyConstraints.FreezeRotationZ;
+        // Cấu hình Agent
+        agent.speed = speed;
+        agent.stoppingDistance = 1f; // Dừng lại khi cách mục tiêu 1m
 
-        // Lưu màu gốc
         if (rend != null)
         {
-            if (rend.material.HasProperty("_Color"))
-                originalColor = rend.material.color;
-            else if (rend.material.HasProperty("_BaseColor"))
-                originalColor = rend.material.GetColor("_BaseColor");
-            else
-                originalColor = Color.white;
+            if (rend.material.HasProperty("_Color")) originalColor = rend.material.color;
+            else if (rend.material.HasProperty("_BaseColor")) originalColor = rend.material.GetColor("_BaseColor");
+            else originalColor = Color.white;
         }
 
-        // Tìm Player nếu chưa gán
         if (player == null)
         {
             GameObject playerObj = GameObject.FindGameObjectWithTag("Player");
-            if (playerObj != null)
-                player = playerObj.transform;
-            else
-                Debug.LogWarning($"[{name}] Không tìm thấy Player!");
+            if (playerObj != null) player = playerObj.transform;
         }
 
         waitTime = startWaitTime;
-
-        if (moveSpots != null)
-            moveSpots.position = new Vector3(
-                Random.Range(minX, maxX), 0f, Random.Range(minZ, maxZ));
+        SetNewWanderTarget();
     }
 
-    // ==================== FIXED UPDATE ====================
-    void FixedUpdate()
+    void Update()
     {
-        if (isDead) return;
+        if (isDead || player == null) return;
 
-        // Ép Y = 1
-        Vector3 lockedPos = rb.position;
-        lockedPos.y = 1f;
+        float distanceToPlayer = Vector3.Distance(transform.position, player.position);
 
-        if (player == null)
-        {
-            rb.MovePosition(lockedPos);
-            return;
-        }
-
-        float distanceToPlayer = Vector3.Distance(player.position, lockedPos);
-
-        // === CHASE PLAYER ===
         if (distanceToPlayer < lineOfSight)
         {
-            Vector3 dir = player.position - lockedPos;
-            dir.y = 0f;
-            moveDirection = dir.normalized;
-            FaceTarget(player.position);
+            // Đuổi theo Player: NavMesh tự động tìm đường vòng qua tường
+            agent.SetDestination(player.position);
         }
-        // === WANDER ===
         else if (moveSpots != null)
         {
-            Vector3 dir = moveSpots.position - lockedPos;
-            dir.y = 0f;
-            moveDirection = dir.normalized;
-
-            if (moveDirection.sqrMagnitude > 0.0001f)
-                FaceTarget(moveSpots.position);
-
-            if (Vector3.Distance(lockedPos, moveSpots.position) < 0.3f)
+            // Đi tuần tra
+            if (!agent.pathPending && agent.remainingDistance < 0.5f)
             {
-                moveDirection = Vector3.zero;
-
+                // Đã đến điểm tuần tra, đứng chờ
+                agent.isStopped = true;
+                
                 if (waitTime <= 0f)
                 {
-                    moveSpots.position = new Vector3(
-                        Random.Range(minX, maxX), 0f, Random.Range(minZ, maxZ));
+                    SetNewWanderTarget();
                     waitTime = startWaitTime;
+                    agent.isStopped = false;
                 }
-                else
-                {
-                    waitTime -= Time.fixedDeltaTime;
-                }
+                else waitTime -= Time.deltaTime;
             }
         }
-        else
-        {
-            moveDirection = Vector3.zero;
-        }
-
-        // Di chuyển
-        Vector3 newPos = lockedPos + moveDirection * speed * Time.fixedDeltaTime;
-        newPos.y = 1f;
-        rb.MovePosition(newPos);
     }
 
-    // ==================== HIT DETECTION ====================
+    private void SetNewWanderTarget()
+    {
+        // Tìm một điểm ngẫu nhiên trên NavMesh
+        Vector3 randomDirection = Random.insideUnitSphere * 10f;
+        randomDirection += transform.position;
+        NavMeshHit hit;
+        
+        if (NavMesh.SamplePosition(randomDirection, out hit, 10f, 1))
+        {
+            agent.SetDestination(hit.position);
+            if (moveSpots != null) moveSpots.position = hit.position;
+        }
+    }
+
+    // Raycast để kiểm tra xem có nhìn thấy Player không (tránh nhìn xuyên tường)
+    private bool HasLineOfSightToPlayer()
+    {
+        if (player == null) return false;
+        
+        Vector3 dirToPlayer = (player.position - transform.position).normalized;
+        RaycastHit hit;
+        
+        // Bắn tia từ Enemy tới Player
+        if (Physics.Raycast(transform.position, dirToPlayer, out hit, lineOfSight))
+        {
+            // Nếu tia chạm vào Player thì là có thể nhìn thấy
+            if (hit.transform == player)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private void OnTriggerEnter(Collider hitInfo)
     {
         if (isDead || isInvincible || hitInfo == null) return;
-
         if (hitInfo.CompareTag("Bullet"))
         {
-            Debug.Log($"[{name}] Ăn hit từ Bullet!");
             Destroy(hitInfo.gameObject);
             TakeHit();
         }
     }
 
-    // ==================== HIT LOGIC ====================
     public void TakeHit()
     {
         if (isDead) return;
-
         currentHits++;
-        Debug.Log($"[{name}] Ăn hit {currentHits}/{maxHits}");
-
-        if (currentHits >= maxHits)
-        {
-            Die();
-        }
-        else
-        {
-            StartCoroutine(InvincibleRoutine());
-        }
+        if (currentHits >= maxHits) Die();
+        else StartCoroutine(InvincibleRoutine());
     }
 
     private IEnumerator InvincibleRoutine()
     {
         isInvincible = true;
-
         for (int i = 0; i < 3; i++)
         {
             SetColor(Color.red);
@@ -192,53 +160,25 @@ public class EnemyController : MonoBehaviour
             SetColor(originalColor);
             yield return new WaitForSeconds(iframeDuration * 0.5f);
         }
-
         isInvincible = false;
     }
 
     private void SetColor(Color color)
     {
         if (rend == null) return;
-
-        if (rend.material.HasProperty("_Color"))
-            rend.material.color = color;
-        else if (rend.material.HasProperty("_BaseColor"))
-            rend.material.SetColor("_BaseColor", color);
+        if (rend.material.HasProperty("_Color")) rend.material.color = color;
+        else if (rend.material.HasProperty("_BaseColor")) rend.material.SetColor("_BaseColor", color);
     }
 
-    // ==================== DEATH ====================
     private void Die()
     {
         if (isDead) return;
         isDead = true;
-
-        Debug.Log($"[{name}] Chết!");
-
         if (col != null) col.enabled = false;
-
-        if (rb != null)
-        {
-            rb.linearVelocity = Vector3.zero;
-            rb.angularVelocity = Vector3.zero;
-            rb.isKinematic = true;
-        }
-
-        // Delay 1 frame để mọi thứ update xong, rồi huỷ
+        if (agent != null) agent.isStopped = true; // Dừng di chuyển
         Destroy(gameObject, 0.1f);
     }
 
-    // ==================== HELPERS ====================
-    private void FaceTarget(Vector3 target)
-    {
-        Vector3 dir = target - rb.position;
-        dir.y = 0f;
-        if (dir.sqrMagnitude < 0.0001f) return;
-
-        Quaternion targetRot = Quaternion.LookRotation(dir);
-        rb.MoveRotation(targetRot);
-    }
-
-    // ==================== GIZMOS ====================
     private void OnDrawGizmosSelected()
     {
         Gizmos.color = Color.green;

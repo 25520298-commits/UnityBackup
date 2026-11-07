@@ -3,15 +3,12 @@ using UnityEngine;
 public class Shooting : MonoBehaviour
 {
     private Camera mainCam;
-    
-    [Header("Damage")]
-    [Tooltip("Sát thương mỗi viên đạn bắn ra")]
-   
 
     [Header("References")]
     public Transform rotationPoint;
     public GameObject bullet;
-    public Transform bulletTransform;    // đầu nòng súng
+    public Transform bulletTransform;    // Kéo Muzzle vào đây
+    public Bullet _bullet;               // Kéo Prefab Bullet vào đây
 
     [Header("Firing")]
     public bool canFire;
@@ -19,32 +16,25 @@ public class Shooting : MonoBehaviour
     public float timeBetweenBullets = 0.2f;
 
     [Header("Burst / Multi-shot")]
-    [Tooltip("Số viên đạn bắn ra mỗi lần bóp cò")]
     public int bulletsPerShot = 1;
-    [Tooltip("Độ trễ giữa các viên trong cùng 1 lần bắn (giây) — để 0 nếu muốn bắn cùng lúc")]
     public float delayBetweenBullets = 0f;
 
     [Header("Spread")]
-    [Tooltip("Độ tản ban đầu (độ)")]
     public float baseSpread = 0f;
-    [Tooltip("Độ tản tối đa (độ)")]
     public float maxSpread = 15f;
-    [Tooltip("Độ tản tăng thêm mỗi viên đạn")]
     public float spreadIncreasePerShot = 1.5f;
-    [Tooltip("Tốc độ hồi phục độ tản khi ngừng bắn")]
     public float spreadDecreaseRate = 10f;
 
     private float currentSpread = 0f;
     private int bulletsFiredInBurst = 0;
     private float burstTimer = 0f;
     private bool isBursting = false;
-    public EnemyBullet _bullet;
+
     void Start()
     {
         mainCam = Camera.main;
         if (mainCam == null) Debug.LogError("Không tìm thấy Main Camera!");
         if (rotationPoint == null) rotationPoint = transform;
-
         currentSpread = baseSpread;
     }
 
@@ -100,7 +90,6 @@ public class Shooting : MonoBehaviour
 
     void HandleSpreadRecovery()
     {
-        // Hồi phục độ tản khi nhả chuột
         if (!Input.GetMouseButton(0))
         {
             currentSpread = Mathf.MoveTowards(currentSpread, baseSpread, spreadDecreaseRate * Time.deltaTime);
@@ -152,22 +141,27 @@ public class Shooting : MonoBehaviour
 
     void FireBullet()
     {
-        float randomSpread = Random.Range(-currentSpread, currentSpread);
+        // 1. Lấy hướng từ trục Z của Muzzle
+        Vector3 fireDirection = bulletTransform.forward;
 
-        Quaternion baseRotation = bulletTransform.rotation * Quaternion.Euler(0f, -90f, 0f);
-        Quaternion spreadRotation = Quaternion.Euler(0f, randomSpread, 0f);
-        Quaternion finalRotation = baseRotation * spreadRotation;
-        GameObject newBullet = Instantiate(bullet, bulletTransform.position, finalRotation);
+        // 2. Tính độ tản (Spread)
+        float randomSpread = Random.Range(-currentSpread, currentSpread);
+        fireDirection = Quaternion.Euler(0f, randomSpread, 0f) * fireDirection;
+
+        // 3. Tạo đạn với góc xoay cơ bản (chỉ xoay theo hướng bay, không cộng offset)
+        Quaternion baseRotation = Quaternion.LookRotation(fireDirection.normalized, Vector3.up);
+
+        // 4. Tạo đạn
+        GameObject newBullet = Instantiate(bullet, bulletTransform.position, baseRotation);
+
+        // 5. Set damage
         Bullet bulletScript = newBullet.GetComponent<Bullet>();
-        Instantiate(bullet, bulletTransform.position, finalRotation);
-        if (bulletScript != null)
+        if (bulletScript != null && _bullet != null)
         {
             bulletScript.damage = _bullet.damage;
         }
-        else
-        {
-            Debug.LogWarning("Prefab đạn chưa gắn script Bullet!");
-        }
+
+        // 6. Tăng độ tản
         currentSpread = Mathf.Min(currentSpread + spreadIncreasePerShot, maxSpread);
     }
 }
