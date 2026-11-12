@@ -4,6 +4,7 @@ using PlayFab.ClientModels;
 using UnityEngine.SceneManagement;
 using System;
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
 
 public class AuthManager : MonoBehaviour
 {
@@ -11,12 +12,13 @@ public class AuthManager : MonoBehaviour
 
     public bool IsLoggedIn { get; private set; } = false;
     public string PlayFabId { get; private set; }
-    public string PlayerDisplayName { get; private set; }
+    public string PlayerDisplayName { get; private set; } 
+    
     private int loginFailCount = 0; 
 
     [Header("Scene Settings")]
-    public string loginSceneName = "LoginUI"; 
-    public string gameSceneName = "MainMenuUI";
+    public string loginSceneName = "UI"; 
+    public string gameSceneName = "MainMenuUI"; 
 
     private void Awake()
     {
@@ -39,15 +41,39 @@ public class AuthManager : MonoBehaviour
         Debug.Log("Yêu cầu đăng nhập.");
     }
 
-    // Hàm mới: Reset số lần đăng nhập sai khi người dùng đổi form
-    public void ResetLoginAttempts()
+    // ==================== HÀM KIỂM TRA ĐỊNH DẠNG ====================
+    
+    public bool IsValidEmail(string email)
     {
-        loginFailCount = 0;
+        if (string.IsNullOrWhiteSpace(email)) return false;
+        string pattern = @"^[^@\s]+@[^@\s]+\.[^@\s]+$";
+        return Regex.IsMatch(email, pattern);
+    }
+
+    public bool IsValidUsername(string username)
+    {
+        if (string.IsNullOrWhiteSpace(username)) return false;
+        if (username.Length < 3 || username.Length > 25) return false;
+        
+        string pattern = @"^[a-zA-Z0-9_]+$";
+        return Regex.IsMatch(username, pattern);
+    }
+
+    // ĐÃ CẬP NHẬT: Mật khẩu phải từ 8 ký tự
+    public bool IsValidPassword(string password)
+    {
+        return !string.IsNullOrEmpty(password) && password.Length >= 8;
     }
 
     // ==================== ĐĂNG NHẬP ====================
     public void Login(string email, string password, Action<string> onError, Action onRequireRegister)
     {
+        if (!IsValidEmail(email))
+        {
+            onError?.Invoke("Định dạng Email không hợp lệ!");
+            return;
+        }
+
         var request = new LoginWithEmailAddressRequest
         {
             Email = email,
@@ -91,9 +117,51 @@ public class AuthManager : MonoBehaviour
             });
     }
 
+    // ==================== KIỂM TRA TÀI KHOẢN ====================
+    public void CheckAccountExists(string email, Action<bool> onResult)
+    {
+        if (!IsValidEmail(email))
+        {
+            onResult?.Invoke(false);
+            return;
+        }
+
+        var request = new LoginWithEmailAddressRequest
+        {
+            Email = email,
+            Password = "ThisIsAWrongPasswordForChecking123!" 
+        };
+
+        PlayFabClientAPI.LoginWithEmailAddress(request,
+            result => { onResult?.Invoke(true); },
+            error => {
+                if (error.Error == PlayFabErrorCode.AccountNotFound) onResult?.Invoke(false);
+                else if (error.Error == PlayFabErrorCode.InvalidEmailOrPassword) onResult?.Invoke(true);
+                else onResult?.Invoke(false);
+            });
+    }
+
     // ==================== ĐĂNG KÝ ====================
     public void Register(string email, string password, string username, Action<string> onSuccess, Action<string> onError)
     {
+        if (!IsValidEmail(email))
+        {
+            onError?.Invoke("Định dạng Email không hợp lệ!");
+            return;
+        }
+
+        if (!IsValidUsername(username))
+        {
+            onError?.Invoke("Tên đăng nhập phải từ 3-25 ký tự và không chứa ký tự đặc biệt hoặc khoảng trắng!");
+            return;
+        }
+
+        if (!IsValidPassword(password))
+        {
+            onError?.Invoke("Mật khẩu phải có ít nhất 8 ký tự!"); // Cập nhật thông báo lỗi
+            return;
+        }
+
         var request = new RegisterPlayFabUserRequest
         {
             Email = email,
@@ -142,11 +210,26 @@ public class AuthManager : MonoBehaviour
     // ==================== QUÊN MẬT KHẨU ====================
     public void ForgotPassword(string email, Action<string> onSuccess, Action<string> onError)
     {
-        var request = new SendAccountRecoveryEmailRequest { Email = email, TitleId = PlayFabSettings.TitleId };
+        if (!IsValidEmail(email))
+        {
+            onError?.Invoke("Định dạng Email không hợp lệ!");
+            return;
+        }
+
+        var request = new SendAccountRecoveryEmailRequest
+        {
+            Email = email,
+            TitleId = PlayFabSettings.TitleId
+        };
 
         PlayFabClientAPI.SendAccountRecoveryEmail(request, 
             result => { onSuccess?.Invoke("Đã gửi email khôi phục!"); }, 
-            error => { onError?.Invoke("Không thể gửi email."); });
+            error => { onError?.Invoke("Không thể gửi email. Hãy kiểm tra lại địa chỉ Email."); });
+    }
+
+    public void ResetLoginAttempts()
+    {
+        loginFailCount = 0;
     }
 
     // ==================== ĐĂNG XUẤT ====================

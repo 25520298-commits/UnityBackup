@@ -6,7 +6,7 @@ public class EnemyController : MonoBehaviour
 {
     [Header("Movement")]
     [SerializeField] private float speed = 3f;
-    [SerializeField] private float lineOfSight = 6f;
+    [SerializeField] public float lineOfSight = 6f;
 
     [Header("Wander")]
     public Transform moveSpots;
@@ -183,5 +183,7 @@ public class EnemyController : MonoBehaviour
     {
         Gizmos.color = Color.green;
         Gizmos.DrawWireSphere(transform.position, lineOfSight);
+        
     }
+    
 }

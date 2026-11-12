@@ -14,7 +14,16 @@ public class MainMenuUI : MonoBehaviour
         if (AuthManager.Instance == null || !AuthManager.Instance.IsLoggedIn)
         {
             Debug.LogWarning("Chưa đăng nhập! Chuyển về màn hình Login.");
-            SceneManager.LoadScene("LoginUI"); 
+            
+            // Kiểm tra xem Scene LoginUI có tồn tại trong Build Settings không trước khi load
+            if (Application.CanStreamedLevelBeLoaded("LoginUI"))
+            {
+                SceneManager.LoadScene("LoginUI"); 
+            }
+            else
+            {
+                Debug.LogError("LỖI: Scene 'LoginUI' chưa được thêm vào Build Settings!");
+            }
             return;
         }
 
@@ -23,9 +32,17 @@ public class MainMenuUI : MonoBehaviour
         {
             string nameToDisplay = AuthManager.Instance.PlayerDisplayName;
             
-            if (string.IsNullOrEmpty(nameToDisplay))
+            if (string.IsNullOrEmpty(nameToDisplay) && !string.IsNullOrEmpty(AuthManager.Instance.PlayFabId))
             {
-                nameToDisplay = "Player_" + AuthManager.Instance.PlayFabId.Substring(0, 5);
+                // Cắt chuỗi an toàn (tránh lỗi nếu PlayFabId quá ngắn)
+                string shortId = AuthManager.Instance.PlayFabId.Length > 5 
+                    ? AuthManager.Instance.PlayFabId.Substring(0, 5) 
+                    : AuthManager.Instance.PlayFabId;
+                nameToDisplay = "Player_" + shortId;
+            }
+            else if (string.IsNullOrEmpty(nameToDisplay))
+            {
+                nameToDisplay = "Khách";
             }
 
             usernameText.text = "Chào, " + nameToDisplay;
@@ -34,8 +51,15 @@ public class MainMenuUI : MonoBehaviour
 
     public void OnPlayGameClicked()
     {
-        // SỬA TẠI ĐÂY: Đổi "SampleScene" thành "TestPlace" cho đúng với tên file của bạn
-        SceneManager.LoadScene("TestPlace"); 
+        // Kiểm tra xem Scene TestPlace có tồn tại không
+        if (Application.CanStreamedLevelBeLoaded("TestPlace"))
+        {
+            SceneManager.LoadScene("TestPlace"); 
+        }
+        else
+        {
+            Debug.LogError("LỖI: Scene 'TestPlace' chưa được thêm vào Build Settings!");
+        }
     }
 
     public void OnLogoutClicked()

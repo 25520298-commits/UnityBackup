@@ -3,21 +3,27 @@ using UnityEngine;
 public class Controller : MonoBehaviour
 {
     private Rigidbody rb;
-    public float speed = 5f;
+    
+    [Header("Movement Settings")]
+    public float walkSpeed = 5f;
+    public float runSpeed = 10f; // Tốc độ khi chạy
+    public float rotationSpeed = 10f;
     
     [Header("Camera Reference")]
-    [Tooltip("Kéo Main Camera hoặc Cinemachine Camera vào đây để lấy hướng")]
     public Transform cameraTransform; 
+
+    // Biến này để các script khác biết bạn đang chạy hay không
+    public bool IsRunning { get; private set; }
 
     void Start()
     {
         rb = GetComponent<Rigidbody>();
+        // Khóa trục Y và Rotation X/Z để nhân vật không bị ngã
         rb.constraints = RigidbodyConstraints.FreezePositionY
                          | RigidbodyConstraints.FreezeRotationX
                          | RigidbodyConstraints.FreezeRotationZ;
         rb.useGravity = true;
 
-        // Nếu chưa gán Camera, tự động tìm Camera chính
         if (cameraTransform == null && Camera.main != null)
         {
             cameraTransform = Camera.main.transform;
@@ -29,7 +35,6 @@ public class Controller : MonoBehaviour
         float h = Input.GetAxisRaw("Horizontal");
         float v = Input.GetAxisRaw("Vertical");
 
-        // 1. Lấy hướng trước/sau và trái/phải của Camera (chiếu xuống mặt phẳng XZ)
         Vector3 camForward = cameraTransform.forward;
         Vector3 camRight = cameraTransform.right;
         camForward.y = 0f;
@@ -37,21 +42,23 @@ public class Controller : MonoBehaviour
         camForward.Normalize();
         camRight.Normalize();
 
-        // 2. Tính toán hướng di chuyển dựa trên input và hướng Camera
-        // v > 0 (bấm W) -> đi theo camForward
-        // h > 0 (bấm D) -> đi theo camRight
         Vector3 moveDirection = (camForward * v + camRight * h).normalized;
 
-        // 3. Áp dụng vận tốc
-        rb.linearVelocity = new Vector3(moveDirection.x * speed, rb.linearVelocity.y, moveDirection.z * speed);
+        // KIỂM TRA PHÍM SHIFT
+        // IsRunning = true nếu đang giữ Shift VÀ đang có di chuyển
+        IsRunning = Input.GetKey(KeyCode.LeftShift) && moveDirection.sqrMagnitude > 0.01f;
+        
+        // Chọn tốc độ
+        float currentSpeed = IsRunning ? runSpeed : walkSpeed;
 
-        // 4. (Tùy chọn) Xoay nhân vật về hướng di chuyển
+        // Áp dụng vận tốc di chuyển
+        rb.linearVelocity = new Vector3(moveDirection.x * currentSpeed, rb.linearVelocity.y, moveDirection.z * currentSpeed);
+
+        // Xoay nhân vật
         if (moveDirection.sqrMagnitude > 0.01f)
         {
-            // Tạo góc xoay hướng về phía trước
             Quaternion targetRotation = Quaternion.LookRotation(moveDirection);
-            // Xoay mượt mà
-            //rb.MoveRotation(Quaternion.Slerp(rb.rotation, targetRotation, Time.fixedDeltaTime * 10f));
+            rb.MoveRotation(Quaternion.Slerp(rb.rotation, targetRotation, Time.fixedDeltaTime * rotationSpeed));
         }
     }
 }

@@ -1,5 +1,7 @@
 {
   "dependencies": {
+    "com.unify.unified-universal-blur": "https://github.com/lukakldiashvili/Unified-Universal-Blur.git",
+    "com.unity.2d.sprite": "1.0.0",
     "com.unity.2d.tilemap.extras": "6.0.3",
     "com.unity.ai.navigation": "2.0.14",
     "com.unity.cinemachine": "3.1.7",
@@ -13,6 +15,7 @@
     "com.unity.test-framework": "1.6.0",
     "com.unity.timeline": "1.8.13",
     "com.unity.ugui": "2.0.0",
+    "com.unity.uiextensions": "https://github.com/Unity-UI-Extensions/com.unity.uiextensions.git",
     "com.unity.visualscripting": "1.9.12",
     "com.unity.modules.accessibility": "1.0.0",
     "com.unity.modules.adaptiveperformance": "1.0.0",
