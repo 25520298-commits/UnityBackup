@@ -1,43 +1,52 @@
 using UnityEngine;
 using UnityEngine.UI;
+using TMPro; // Nếu bạn muốn hiển thị cả chữ số máu
 
 public class HealthBar : MonoBehaviour
 {
-    public float maxHealth = 100.0f;
-    public float currentHealth;
-    public Slider healthSlider;
+    [Header("UI References")]
+    public Slider slider;
+    public TextMeshProUGUI healthText; // (Tùy chọn) Kéo Text hiển thị số máu vào đây
 
-    void Start()
+    public float currentHealth { get; private set; }
+    private float maxHealth;
+
+    // Hàm khởi tạo thanh máu (Gọi 1 lần khi bắt đầu game)
+    public void SetMaxHealth(float maxHealth)
     {
-        // Nếu chưa gán trong Inspector, tự tìm trên chính GameObject này
-        if (healthSlider == null)
-            healthSlider = GetComponent<Slider>();
+        this.maxHealth = maxHealth;
+        this.currentHealth = maxHealth;
+        
+        if (slider != null)
+        {
+            slider.maxValue = maxHealth;
+            slider.value = maxHealth;
+        }
 
-        currentHealth = maxHealth;
-        UpdateHealthUI();
+        UpdateHealthText();
     }
 
+    // Hàm trừ máu khi bị bắn
     public void TakeDamage(float damage)
     {
+        if (currentHealth <= 0) return; // Đã chết thì không trừ nữa
+
         currentHealth -= damage;
-        currentHealth = Mathf.Clamp(currentHealth, 0, maxHealth);
-        UpdateHealthUI();
-    }
+        if (currentHealth < 0) currentHealth = 0; // Không để máu âm
 
-    public void UpdateHealthUI()
-    {
-        if (healthSlider != null)
+        if (slider != null)
         {
-            healthSlider.value = currentHealth / maxHealth; // Slider dùng 0..1
+            slider.value = currentHealth;
         }
+
+        UpdateHealthText();
     }
 
-    void Update()
+    private void UpdateHealthText()
     {
-        // Chỉ cập nhật UI nếu slider tồn tại và giá trị chưa đồng bộ
-        if (healthSlider != null && !Mathf.Approximately(healthSlider.value, currentHealth / maxHealth))
+        if (healthText != null)
         {
-            UpdateHealthUI();
+            healthText.text = $"{currentHealth} / {maxHealth}";
         }
     }
 }

@@ -19,13 +19,13 @@ public class LoginUI : MonoBehaviour
     public TMP_InputField forgotPasswordEmailInput;
 
     [Header("--- SHARED ---")]
-    // Ô text lỗi cũ (nếu bạn không dùng nữa thì có thể để trống hoặc xóa, 
-    // nhưng tôi vẫn giữ lại để code không bị lỗi nếu bạn chưa xóa object)
     public TextMeshProUGUI errorText; 
 
     [Header("--- MESSAGE BOX (POPUP) ---")]
     public GameObject messageBoxPanel; 
     public TextMeshProUGUI messageBoxText; 
+
+    private int localLoginFailCount = 0; 
 
     void Start()
     {
@@ -48,20 +48,39 @@ public class LoginUI : MonoBehaviour
             return;
         }
 
-        // Có thể bỏ dòng này nếu không muốn hiện chữ "Đang đăng nhập"
+        if (!AuthManager.Instance.IsValidEmail(loginEmailInput.text))
+        {
+            localLoginFailCount++;
+            HandleFailedLogin($"Định dạng Email không hợp lệ! (Ví dụ: ten@gmail.com)");
+            return;
+        }
+
         if (errorText != null) errorText.text = "Đang đăng nhập...";
 
         AuthManager.Instance.Login(loginEmailInput.text, loginPasswordInput.text, 
             (errorMsg) => {
-                // ĐÃ SỬA: Hiện lỗi sai mật khẩu/tài khoản bằng Message Box
-                ShowMessageBox("Đăng nhập thất bại", errorMsg);
-                if (errorText != null) errorText.text = ""; // Xóa chữ đang đăng nhập
+                localLoginFailCount++;
+                HandleFailedLogin(errorMsg);
+                if (errorText != null) errorText.text = "";
             },
             () => {
-                // ĐÃ SỬA: Hiện cảnh báo sai 3 lần bằng Message Box
-                ShowMessageBox("Cảnh báo", "Sai tài khoản quá 3 lần. Vui lòng đăng ký tài khoản mới!");
-                SwitchToRegister(); 
+                localLoginFailCount = 0; 
             });
+    }
+
+    // Hàm xử lý khi đăng nhập thất bại
+    private void HandleFailedLogin(string errorMessage)
+    {
+        if (localLoginFailCount >= 3)
+        {
+            localLoginFailCount = 0; 
+            SwitchToRegister(); // Chuyển sang form đăng ký (đã bao gồm xóa form)
+            ShowMessageBox("Chưa có tài khoản?", "Bạn đã nhập sai 3 lần. Hãy đăng ký tài khoản mới ngay!");
+        }
+        else
+        {
+            ShowMessageBox("Đăng nhập thất bại", $"{errorMessage}\n(Lần {localLoginFailCount}/3)");
+        }
     }
 
     // ==================== XỬ LÝ ĐĂNG KÝ ====================
@@ -81,7 +100,7 @@ public class LoginUI : MonoBehaviour
         {
             if (exists)
             {
-                ShowMessageBox("Lỗi", "Email này đã được đăng ký! Vui lòng đăng nhập hoặc dùng email khác.");
+                ShowMessageBox("Lỗi", "Email này đã được đăng ký! Vui lòng đăng nhập.");
                 if (errorText != null) errorText.text = "";
             }
             else
@@ -90,13 +109,11 @@ public class LoginUI : MonoBehaviour
                 
                 AuthManager.Instance.Register(registerEmailInput.text, registerPasswordInput.text, registerUsernameInput.text,
                     (successMsg) => {
-                        // THÀNH CÔNG -> Hiện Message Box
                         ShowMessageBox("Thành công", successMsg);
                         if (errorText != null) errorText.text = "";
                         SwitchToLogin(); 
                     },
                     (errorMsg) => {
-                        // LỖI (VD: Tên đã tồn tại) -> Hiện Message Box
                         ShowMessageBox("Đăng ký thất bại", errorMsg);
                         if (errorText != null) errorText.text = "";
                     });
@@ -131,25 +148,34 @@ public class LoginUI : MonoBehaviour
     // ==================== CHUYỂN FORM ====================
     public void SwitchToRegister()
     {
-        if (AuthManager.Instance != null) AuthManager.Instance.ResetLoginAttempts();
         SetPanelVisibility(loginFormGroup, false);
         SetPanelVisibility(registerFormGroup, true);
         SetPanelVisibility(forgotPasswordGroup, false);
+        
+        // --- XÓA TRẮNG THÔNG TIN FORM ĐĂNG NHẬP KHI CHUYỂN SANG ĐĂNG KÝ ---
+        if (loginEmailInput != null) loginEmailInput.text = "";
+        if (loginPasswordInput != null) loginPasswordInput.text = "";
+        
         if (errorText != null) errorText.text = "";
     }
 
     public void SwitchToLogin()
     {
-        if (AuthManager.Instance != null) AuthManager.Instance.ResetLoginAttempts();
+        localLoginFailCount = 0; 
         SetPanelVisibility(registerFormGroup, false);
         SetPanelVisibility(loginFormGroup, true);
         SetPanelVisibility(forgotPasswordGroup, false);
+        
+        // --- XÓA TRẮNG THÔNG TIN FORM ĐĂNG KÝ KHI QUAY LẠI ĐĂNG NHẬP ---
+        if (registerEmailInput != null) registerEmailInput.text = "";
+        if (registerPasswordInput != null) registerPasswordInput.text = "";
+        if (registerUsernameInput != null) registerUsernameInput.text = "";
+        
         if (errorText != null) errorText.text = "";
     }
 
     public void SwitchToForgotPassword()
     {
-        if (AuthManager.Instance != null) AuthManager.Instance.ResetLoginAttempts();
         SetPanelVisibility(loginFormGroup, false);
         SetPanelVisibility(registerFormGroup, false);
         SetPanelVisibility(forgotPasswordGroup, true);

@@ -1,12 +1,12 @@
 using System.Collections;
 using UnityEngine;
-using UnityEngine.AI; // Thêm thư viện NavMesh
+using UnityEngine.AI;
 
 public class EnemyController : MonoBehaviour
 {
     [Header("Movement")]
     [SerializeField] private float speed = 3f;
-    [SerializeField] public float lineOfSight = 6f;
+    [SerializeField] private float lineOfSight = 10f;
 
     [Header("Wander")]
     public Transform moveSpots;
@@ -14,20 +14,22 @@ public class EnemyController : MonoBehaviour
     [SerializeField] private float minX = -10f, maxX = 10f;
     [SerializeField] private float minZ = -10f, maxZ = 10f;
 
-    [Header("Target")]
+    [Header("Target & Raycast")]
     public Transform player;
+    public LayerMask obstacleMask; 
+    public Transform eyePoint; 
 
-    [Header("Hit Settings")]
-    [SerializeField] private int maxHits = 3;
+    [Header("Health Settings")]
+    [SerializeField] private float maxHealth = 30f; 
     [SerializeField] private float iframeDuration = 0.2f;
 
-    private NavMeshAgent agent; // Thay thế Rigidbody bằng NavMeshAgent
+    private NavMeshAgent agent;
     private Renderer rend;
     private Collider col;
     private Color originalColor;
 
+    private float currentHealth;
     private float waitTime;
-    private int currentHits = 0;
     private bool isInvincible = false;
     private bool isDead = false;
 
@@ -47,9 +49,11 @@ public class EnemyController : MonoBehaviour
             return;
         }
 
-        // Cấu hình Agent
         agent.speed = speed;
-        agent.stoppingDistance = 1f; // Dừng lại khi cách mục tiêu 1m
+        agent.stoppingDistance = 1f;
+        currentHealth = maxHealth; 
+
+        if (eyePoint == null) eyePoint = transform;
 
         if (rend != null)
         {
@@ -68,25 +72,21 @@ public class EnemyController : MonoBehaviour
         SetNewWanderTarget();
     }
 
-    void Update()
+    void Update() 
     {
         if (isDead || player == null) return;
 
         float distanceToPlayer = Vector3.Distance(transform.position, player.position);
 
-        if (distanceToPlayer < lineOfSight)
+        if (distanceToPlayer < lineOfSight && CanSeePlayer())
         {
-            // Đuổi theo Player: NavMesh tự động tìm đường vòng qua tường
             agent.SetDestination(player.position);
         }
-        else if (moveSpots != null)
+        else
         {
-            // Đi tuần tra
             if (!agent.pathPending && agent.remainingDistance < 0.5f)
             {
-                // Đã đến điểm tuần tra, đứng chờ
                 agent.isStopped = true;
-                
                 if (waitTime <= 0f)
                 {
                     SetNewWanderTarget();
@@ -98,13 +98,21 @@ public class EnemyController : MonoBehaviour
         }
     }
 
+    private bool CanSeePlayer()
+    {
+        Vector3 dirToPlayer = (player.position - eyePoint.position).normalized;
+        if (Physics.Raycast(eyePoint.position, dirToPlayer, out RaycastHit hit, lineOfSight))
+        {
+            if (hit.transform == player || hit.transform.IsChildOf(player)) return true;
+        }
+        return false;
+    }
+
     private void SetNewWanderTarget()
     {
-        // Tìm một điểm ngẫu nhiên trên NavMesh
         Vector3 randomDirection = Random.insideUnitSphere * 10f;
         randomDirection += transform.position;
         NavMeshHit hit;
-        
         if (NavMesh.SamplePosition(randomDirection, out hit, 10f, 1))
         {
             agent.SetDestination(hit.position);
@@ -112,42 +120,45 @@ public class EnemyController : MonoBehaviour
         }
     }
 
-    // Raycast để kiểm tra xem có nhìn thấy Player không (tránh nhìn xuyên tường)
-    private bool HasLineOfSightToPlayer()
-    {
-        if (player == null) return false;
-        
-        Vector3 dirToPlayer = (player.position - transform.position).normalized;
-        RaycastHit hit;
-        
-        // Bắn tia từ Enemy tới Player
-        if (Physics.Raycast(transform.position, dirToPlayer, out hit, lineOfSight))
-        {
-            // Nếu tia chạm vào Player thì là có thể nhìn thấy
-            if (hit.transform == player)
-            {
-                return true;
-            }
-        }
-        return false;
-    }
-
     private void OnTriggerEnter(Collider hitInfo)
     {
+        // --- DEBUG LOG: Kiểm tra xem Enemy có bị bắn trúng không ---
+        Debug.Log($"<color=cyan>[Enemy] Bị chạm bởi: {hitInfo.gameObject.name} | Tag: {hitInfo.tag}</color>");
+
         if (isDead || isInvincible || hitInfo == null) return;
+        
+        // Nếu trúng đạn của Player
         if (hitInfo.CompareTag("Bullet"))
         {
+            Debug.Log("<color=green>[Enemy] Đã nhận diện đạn của Player! Tiến hành trừ máu.</color>");
+            
+            float damage = 10f; 
+            Bullet playerBullet = hitInfo.GetComponent<Bullet>();
+            if (playerBullet != null)
+            {
+                damage = playerBullet.damage;
+            }
+
             Destroy(hitInfo.gameObject);
-            TakeHit();
+            TakeDamage(damage);
         }
     }
 
-    public void TakeHit()
+    public void TakeDamage(float damage)
     {
         if (isDead) return;
-        currentHits++;
-        if (currentHits >= maxHits) Die();
-        else StartCoroutine(InvincibleRoutine());
+        
+        currentHealth -= damage;
+        Debug.Log($"<color=red>[Enemy] Nhận {damage} sát thương. Máu còn: {currentHealth}/{maxHealth}</color>");
+
+        if (currentHealth <= 0)
+        {
+            Die();
+        }
+        else
+        {
+            StartCoroutine(InvincibleRoutine());
+        }
     }
 
     private IEnumerator InvincibleRoutine()
@@ -174,16 +185,30 @@ public class EnemyController : MonoBehaviour
     {
         if (isDead) return;
         isDead = true;
+        Debug.Log($"<color=red>[Enemy] {name} đã chết!</color>");
+        
         if (col != null) col.enabled = false;
-        if (agent != null) agent.isStopped = true; // Dừng di chuyển
+        if (agent != null) agent.isStopped = true;
         Destroy(gameObject, 0.1f);
     }
 
-    private void OnDrawGizmosSelected()
+    private void OnDrawGizmos()
     {
-        Gizmos.color = Color.green;
-        Gizmos.DrawWireSphere(transform.position, lineOfSight);
-        
+        if (!Application.isPlaying) return;
+        if (player == null || eyePoint == null) return;
+
+        Vector3 dirToPlayer = (player.position - eyePoint.position).normalized;
+        if (Physics.Raycast(eyePoint.position, dirToPlayer, out RaycastHit hit, lineOfSight, obstacleMask))
+        {
+            Gizmos.color = (hit.transform == player || hit.transform.IsChildOf(player)) ? Color.green : Color.red;
+            Gizmos.DrawLine(eyePoint.position, hit.point);
+        }
+        else
+        {
+            Gizmos.color = Color.yellow;
+            Gizmos.DrawLine(eyePoint.position, eyePoint.position + dirToPlayer * lineOfSight);
+        }
+        Gizmos.color = new Color(1f, 0f, 0f, 0.3f);
+        Gizmos.DrawWireSphere(eyePoint.position, lineOfSight);
     }
-    
 }

@@ -13,8 +13,6 @@ public class AuthManager : MonoBehaviour
     public bool IsLoggedIn { get; private set; } = false;
     public string PlayFabId { get; private set; }
     public string PlayerDisplayName { get; private set; } 
-    
-    private int loginFailCount = 0; 
 
     [Header("Scene Settings")]
     public string loginSceneName = "UI"; 
@@ -36,13 +34,7 @@ public class AuthManager : MonoBehaviour
         }
     }
 
-    private void Start()
-    {
-        Debug.Log("Yêu cầu đăng nhập.");
-    }
-
     // ==================== HÀM KIỂM TRA ĐỊNH DẠNG ====================
-    
     public bool IsValidEmail(string email)
     {
         if (string.IsNullOrWhiteSpace(email)) return false;
@@ -54,24 +46,23 @@ public class AuthManager : MonoBehaviour
     {
         if (string.IsNullOrWhiteSpace(username)) return false;
         if (username.Length < 3 || username.Length > 25) return false;
-        
         string pattern = @"^[a-zA-Z0-9_]+$";
         return Regex.IsMatch(username, pattern);
     }
 
-    // ĐÃ CẬP NHẬT: Mật khẩu phải từ 8 ký tự
     public bool IsValidPassword(string password)
     {
         return !string.IsNullOrEmpty(password) && password.Length >= 8;
     }
 
     // ==================== ĐĂNG NHẬP ====================
-    public void Login(string email, string password, Action<string> onError, Action onRequireRegister)
+    public void Login(string email, string password, Action<string> onError, Action onSuccess)
     {
+        // Chặn spam nếu email sai định dạng (UI sẽ xử lý thông báo)
         if (!IsValidEmail(email))
         {
             onError?.Invoke("Định dạng Email không hợp lệ!");
-            return;
+            return; 
         }
 
         var request = new LoginWithEmailAddressRequest
@@ -85,13 +76,13 @@ public class AuthManager : MonoBehaviour
             result => {
                 IsLoggedIn = true;
                 PlayFabId = result.PlayFabId;
-                loginFailCount = 0; 
 
                 if (result.InfoResultPayload != null && result.InfoResultPayload.PlayerProfile != null)
                 {
                     PlayerDisplayName = result.InfoResultPayload.PlayerProfile.DisplayName;
                 }
-
+                
+                onSuccess?.Invoke(); // Gọi callback thành công
                 SceneManager.LoadScene(gameSceneName);
             }, 
             error => {
@@ -99,16 +90,7 @@ public class AuthManager : MonoBehaviour
                     error.Error == PlayFabErrorCode.AccountNotFound || 
                     error.Error == PlayFabErrorCode.InvalidEmailOrPassword)
                 {
-                    loginFailCount++;
-                    if (loginFailCount >= 3)
-                    {
-                        onRequireRegister?.Invoke(); 
-                        loginFailCount = 0; 
-                    }
-                    else
-                    {
-                        onError?.Invoke("Sai email hoặc mật khẩu. Vui lòng thử lại.");
-                    }
+                    onError?.Invoke("Sai email hoặc mật khẩu.");
                 }
                 else
                 {
@@ -117,50 +99,12 @@ public class AuthManager : MonoBehaviour
             });
     }
 
-    // ==================== KIỂM TRA TÀI KHOẢN ====================
-    public void CheckAccountExists(string email, Action<bool> onResult)
-    {
-        if (!IsValidEmail(email))
-        {
-            onResult?.Invoke(false);
-            return;
-        }
-
-        var request = new LoginWithEmailAddressRequest
-        {
-            Email = email,
-            Password = "ThisIsAWrongPasswordForChecking123!" 
-        };
-
-        PlayFabClientAPI.LoginWithEmailAddress(request,
-            result => { onResult?.Invoke(true); },
-            error => {
-                if (error.Error == PlayFabErrorCode.AccountNotFound) onResult?.Invoke(false);
-                else if (error.Error == PlayFabErrorCode.InvalidEmailOrPassword) onResult?.Invoke(true);
-                else onResult?.Invoke(false);
-            });
-    }
-
     // ==================== ĐĂNG KÝ ====================
     public void Register(string email, string password, string username, Action<string> onSuccess, Action<string> onError)
     {
-        if (!IsValidEmail(email))
-        {
-            onError?.Invoke("Định dạng Email không hợp lệ!");
-            return;
-        }
-
-        if (!IsValidUsername(username))
-        {
-            onError?.Invoke("Tên đăng nhập phải từ 3-25 ký tự và không chứa ký tự đặc biệt hoặc khoảng trắng!");
-            return;
-        }
-
-        if (!IsValidPassword(password))
-        {
-            onError?.Invoke("Mật khẩu phải có ít nhất 8 ký tự!"); // Cập nhật thông báo lỗi
-            return;
-        }
+        if (!IsValidEmail(email)) { onError?.Invoke("Định dạng Email không hợp lệ!"); return; }
+        if (!IsValidUsername(username)) { onError?.Invoke("Tên đăng nhập 3-25 ký tự, không dấu!"); return; }
+        if (!IsValidPassword(password)) { onError?.Invoke("Mật khẩu phải từ 8 ký tự!"); return; }
 
         var request = new RegisterPlayFabUserRequest
         {
@@ -178,7 +122,6 @@ public class AuthManager : MonoBehaviour
                 string errorMsg = error.ErrorMessage;
                 if (error.Error == PlayFabErrorCode.EmailAddressNotAvailable) errorMsg = "Email này đã được sử dụng!";
                 else if (error.Error == PlayFabErrorCode.UsernameNotAvailable) errorMsg = "Tên đăng nhập này đã có người sử dụng!";
-                else if (error.Error == PlayFabErrorCode.InvalidPassword) errorMsg = "Mật khẩu không hợp lệ!";
                 onError?.Invoke(errorMsg);
             });
     }
@@ -207,14 +150,9 @@ public class AuthManager : MonoBehaviour
             error => { onError?.Invoke(error.ErrorMessage); });
     }
 
-    // ==================== QUÊN MẬT KHẨU ====================
     public void ForgotPassword(string email, Action<string> onSuccess, Action<string> onError)
     {
-        if (!IsValidEmail(email))
-        {
-            onError?.Invoke("Định dạng Email không hợp lệ!");
-            return;
-        }
+        if (!IsValidEmail(email)) { onError?.Invoke("Định dạng Email không hợp lệ!"); return; }
 
         var request = new SendAccountRecoveryEmailRequest
         {
@@ -227,42 +165,34 @@ public class AuthManager : MonoBehaviour
             error => { onError?.Invoke("Không thể gửi email. Hãy kiểm tra lại địa chỉ Email."); });
     }
 
-    public void ResetLoginAttempts()
+    public void CheckAccountExists(string email, Action<bool> onResult)
     {
-        loginFailCount = 0;
+        if (!IsValidEmail(email)) { onResult?.Invoke(false); return; }
+
+        var request = new LoginWithEmailAddressRequest
+        {
+            Email = email,
+            Password = "ThisIsAWrongPasswordForChecking123!" 
+        };
+
+        PlayFabClientAPI.LoginWithEmailAddress(request,
+            result => { onResult?.Invoke(true); },
+            error => {
+                if (error.Error == PlayFabErrorCode.AccountNotFound) onResult?.Invoke(false);
+                else if (error.Error == PlayFabErrorCode.InvalidEmailOrPassword) onResult?.Invoke(true);
+                else onResult?.Invoke(false);
+            });
     }
 
-    // ==================== ĐĂNG XUẤT ====================
     public void Logout()
     {
         IsLoggedIn = false;
         PlayFabId = null;
         PlayerDisplayName = null;
-        loginFailCount = 0;
         PlayerPrefs.DeleteKey("PlayFabSessionTicket");
         PlayerPrefs.DeleteKey("PlayFabId");
         PlayerPrefs.Save();
         PlayFabClientAPI.ForgetAllCredentials();
         SceneManager.LoadScene(loginSceneName);
-    }
-
-    // ==================== QUẢN LÝ PLAYER DATA ====================
-    public void SavePlayerData(string key, string value)
-    {
-        if (!IsLoggedIn) return;
-        var request = new UpdateUserDataRequest { Data = new Dictionary<string, string> { { key, value } } };
-        PlayFabClientAPI.UpdateUserData(request, result => Debug.Log($"Đã lưu {key}"), error => Debug.LogError(error.ErrorMessage));
-    }
-
-    public void LoadPlayerData(string key, Action<string> onSuccess)
-    {
-        if (!IsLoggedIn) return;
-        var request = new GetUserDataRequest { Keys = new List<string> { key } };
-        PlayFabClientAPI.GetUserData(request, 
-            result => {
-                if (result.Data != null && result.Data.ContainsKey(key)) onSuccess?.Invoke(result.Data[key].Value);
-                else onSuccess?.Invoke(null);
-            }, 
-            error => Debug.LogError(error.ErrorMessage));
     }
 }

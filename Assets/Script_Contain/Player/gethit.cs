@@ -1,31 +1,16 @@
 using System.Collections;
 using UnityEngine;
-using UnityEngine.UI;
 
 public class GetHit : MonoBehaviour
 {
-    [Header("Hit Settings")]
-    [SerializeField] private int maxHits = 3;
-    [SerializeField] private float iframeDuration = 0.2f;
-    
-    [Header("Health")]
-    [Tooltip("Kéo thả HealthBar (trên UI Canvas) vào đây trong Inspector")]
+    [Header("References")]
     public HealthBar healthBar;
-
-    [Header("Damage")]
-    [Tooltip("Sát thương mặc định nếu không lấy được từ EnemyBullet")]
+    private Controller playerController;
+    
+    [Header("Hit Settings")]
+    [SerializeField] private float iframeDuration = 0.5f; 
     [SerializeField] private float defaultDamage = 10f;
 
-    [Header("Explosion")]
-    [SerializeField] private GameObject explosionEffect;
-    [SerializeField] private float explosionRange = 3f;
-
-    [Header("Death")]
-    [Tooltip("Thời gian chờ trước khi xoá Player (giây). " +
-             "Để 0 nếu xoá ngay lập tức.")]
-    [SerializeField] private float destroyDelay = 1.5f;
-
-    private int currentHits = 0;
     private bool isInvincible = false;
     private bool isDead = false;
 
@@ -34,84 +19,71 @@ public class GetHit : MonoBehaviour
 
     void Start()
     {
-        // HealthBar nằm trên UI Canvas, KHÔNG nằm trên Player
-        // → phải gán bằng Inspector (kéo thả), KHÔNG dùng GetComponent
+        playerController = GetComponent<Controller>();
+        
         if (healthBar == null)
         {
-            Debug.LogError("GetHit: HealthBar chưa được gán! Hãy kéo thả HealthBar vào Inspector.", this);
+            Debug.LogError("GetHit: HealthBar chưa được gán!", this);
+        }
+        else if (playerController != null)
+        {
+            healthBar.SetMaxHealth(playerController.maxHealth);
         }
 
         rend = GetComponent<Renderer>();
-
-        if (rend != null)
+        if (rend != null && rend.material.HasProperty("_Color"))
         {
-            if (rend.material.HasProperty("_Color"))
-                originalColor = rend.material.color;
-            else
-                originalColor = Color.white;
+            originalColor = rend.material.color;
         }
     }
 
     private void OnTriggerEnter(Collider hitInfo)
     {
+        // --- DEBUG LOG: Kiểm tra xem có va chạm không ---
+        Debug.Log($"<color=cyan>[GetHit] Player bị chạm bởi: {hitInfo.gameObject.name} | Tag: {hitInfo.tag}</color>");
+
         if (isDead || isInvincible) return;
         if (hitInfo == null) return;
 
-        if (hitInfo.CompareTag("Enemy"))
+        // Nhận sát thương từ đạn của Enemy
+        if (hitInfo.CompareTag("EnemyBullet"))
         {
-            TakeHit(defaultDamage);
-        }
-        else if (hitInfo.CompareTag("EnemyBullet"))
-        {
-            // Lấy damage từ viên đạn trước khi destroy
+            Debug.Log("<color=red>[GetHit] Đã nhận diện đạn Enemy! Tiến hành trừ máu.</color>");
+            
             float damage = defaultDamage;
             EnemyBullet bullet = hitInfo.GetComponent<EnemyBullet>();
             if (bullet != null)
             {
-                damage = bullet.damage;
+                damage = bullet.damage; 
             }
 
             Destroy(hitInfo.gameObject);
             TakeHit(damage);
         }
-    }
-
-    private void OnCollisionEnter(Collision collision)
-    {
-        if (isDead || isInvincible) return;
-        if (collision == null) return;
-
-        if (collision.gameObject.CompareTag("Enemy"))
+        // Va chạm với cơ thể Enemy
+        else if (hitInfo.CompareTag("Enemy"))
         {
+            Debug.Log("<color=orange>[GetHit] Va chạm với cơ thể Enemy! Tiến hành trừ máu.</color>");
             TakeHit(defaultDamage);
         }
-        else if (collision.gameObject.CompareTag("EnemyBullet"))
+        else
         {
-            float damage = defaultDamage;
-            EnemyBullet bullet = collision.gameObject.GetComponent<EnemyBullet>();
-            if (bullet != null)
-            {
-                damage = bullet.damage;
-            }
-
-            Destroy(collision.gameObject);
-            TakeHit(damage);
+            Debug.Log($"<color=yellow>[GetHit] Va chạm với object không xác định: {hitInfo.tag}</color>");
         }
     }
 
     public void TakeHit(float damage)
     {
-        currentHits++;
-        Debug.Log($"Player ăn hit {currentHits}/{maxHits}");
+        if (isDead) return;
 
-        // Trừ máu qua HealthBar
+        Debug.Log($"<color=red>[GetHit] Nhận {damage} sát thương!</color>");
+
         if (healthBar != null)
         {
-            healthBar.TakeDamage(damage);
+            healthBar.TakeDamage(damage); 
         }
 
-        // Chết khi hết máu HOẶC hết số lần chịu đòn
-        if ((healthBar != null && healthBar.currentHealth <= 0) || currentHits >= maxHits)
+        if (healthBar != null && healthBar.currentHealth <= 0)
         {
             Die();
         }
@@ -124,20 +96,13 @@ public class GetHit : MonoBehaviour
     private IEnumerator Invincible()
     {
         isInvincible = true;
-
         for (int i = 0; i < 3; i++)
         {
-            if (rend != null && rend.material.HasProperty("_Color"))
-                rend.material.color = Color.red;
-
+            if (rend != null && rend.material.HasProperty("_Color")) rend.material.color = Color.red;
             yield return new WaitForSeconds(iframeDuration * 0.5f);
-
-            if (rend != null && rend.material.HasProperty("_Color"))
-                rend.material.color = originalColor;
-
+            if (rend != null && rend.material.HasProperty("_Color")) rend.material.color = originalColor;
             yield return new WaitForSeconds(iframeDuration * 0.5f);
         }
-
         isInvincible = false;
     }
 
@@ -145,8 +110,7 @@ public class GetHit : MonoBehaviour
     {
         if (isDead) return;
         isDead = true;
-
-        Debug.Log("Player chết!");
+        Debug.Log("<color=red>[GetHit] Player đã chết!</color>");
 
         Collider col = GetComponent<Collider>();
         if (col != null) col.enabled = false;
@@ -155,22 +119,10 @@ public class GetHit : MonoBehaviour
         if (rb != null)
         {
             rb.linearVelocity = Vector3.zero;
-            rb.angularVelocity = Vector3.zero;
             rb.isKinematic = true;
         }
 
         Controller pc = GetComponent<Controller>();
         if (pc != null) pc.enabled = false;
-
-        if (destroyDelay <= 0f)
-            Destroy(gameObject);
-        else
-            Destroy(gameObject, destroyDelay);
-    }
-
-    private void OnDrawGizmosSelected()
-    {
-        Gizmos.color = Color.red;
-        Gizmos.DrawWireSphere(transform.position, explosionRange);
     }
 }
