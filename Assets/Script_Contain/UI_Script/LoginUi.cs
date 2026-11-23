@@ -1,5 +1,7 @@
 using UnityEngine;
+using UnityEngine.UI;
 using TMPro;
+using UnityEngine.SceneManagement;
 
 public class LoginUI : MonoBehaviour
 {
@@ -19,13 +21,13 @@ public class LoginUI : MonoBehaviour
     public TMP_InputField forgotPasswordEmailInput;
 
     [Header("--- SHARED ---")]
-    public TextMeshProUGUI errorText; 
+    public TextMeshProUGUI errorText;
 
     [Header("--- MESSAGE BOX (POPUP) ---")]
-    public GameObject messageBoxPanel; 
-    public TextMeshProUGUI messageBoxText; 
+    public GameObject messageBoxPanel;
+    public TextMeshProUGUI messageBoxText;
 
-    private int localLoginFailCount = 0; 
+    private int localLoginFailCount = 0;
 
     void Start()
     {
@@ -35,11 +37,9 @@ public class LoginUI : MonoBehaviour
         
         if (messageBoxPanel != null) 
             messageBoxPanel.SetActive(false);
-
-        if (errorText != null) errorText.text = "";
     }
 
-    // ==================== XỬ LÝ ĐĂNG NHẬP ====================
+    // ==================== ĐĂNG NHẬP ====================
     public void OnLoginButtonClicked()
     {
         if (string.IsNullOrEmpty(loginEmailInput.text) || string.IsNullOrEmpty(loginPasswordInput.text))
@@ -48,42 +48,31 @@ public class LoginUI : MonoBehaviour
             return;
         }
 
-        if (!AuthManager.Instance.IsValidEmail(loginEmailInput.text))
-        {
-            localLoginFailCount++;
-            HandleFailedLogin($"Định dạng Email không hợp lệ! (Ví dụ: ten@gmail.com)");
-            return;
-        }
-
         if (errorText != null) errorText.text = "Đang đăng nhập...";
 
         AuthManager.Instance.Login(loginEmailInput.text, loginPasswordInput.text, 
             (errorMsg) => {
                 localLoginFailCount++;
-                HandleFailedLogin(errorMsg);
+                if (localLoginFailCount >= 3)
+                {
+                    localLoginFailCount = 0;
+                    SwitchToRegister();
+                    ShowMessageBox("Chưa có tài khoản?", "Bạn đã nhập sai 3 lần. Hãy đăng ký ngay!");
+                }
+                else
+                {
+                    ShowMessageBox("Đăng nhập thất bại", $"{errorMsg}\n(Lần {localLoginFailCount}/3)");
+                }
                 if (errorText != null) errorText.text = "";
             },
             () => {
-                localLoginFailCount = 0; 
+                localLoginFailCount = 0;
+                if (errorText != null) errorText.text = "";
+                SceneManager.LoadScene("MainMenuUI"); 
             });
     }
 
-    // Hàm xử lý khi đăng nhập thất bại
-    private void HandleFailedLogin(string errorMessage)
-    {
-        if (localLoginFailCount >= 3)
-        {
-            localLoginFailCount = 0; 
-            SwitchToRegister(); // Chuyển sang form đăng ký (đã bao gồm xóa form)
-            ShowMessageBox("Chưa có tài khoản?", "Bạn đã nhập sai 3 lần. Hãy đăng ký tài khoản mới ngay!");
-        }
-        else
-        {
-            ShowMessageBox("Đăng nhập thất bại", $"{errorMessage}\n(Lần {localLoginFailCount}/3)");
-        }
-    }
-
-    // ==================== XỬ LÝ ĐĂNG KÝ ====================
+    // ==================== ĐĂNG KÝ ====================
     public void OnRegisterButtonClicked()
     {
         if (string.IsNullOrEmpty(registerEmailInput.text) || 
@@ -94,34 +83,21 @@ public class LoginUI : MonoBehaviour
             return;
         }
 
-        if (errorText != null) errorText.text = "Đang kiểm tra tài khoản...";
+        if (errorText != null) errorText.text = "Đang tạo tài khoản...";
 
-        AuthManager.Instance.CheckAccountExists(registerEmailInput.text, (exists) => 
-        {
-            if (exists)
-            {
-                ShowMessageBox("Lỗi", "Email này đã được đăng ký! Vui lòng đăng nhập.");
+        AuthManager.Instance.Register(registerEmailInput.text, registerPasswordInput.text, registerUsernameInput.text,
+            (successMsg) => {
+                ShowMessageBox("Thành công", successMsg);
                 if (errorText != null) errorText.text = "";
-            }
-            else
-            {
-                if (errorText != null) errorText.text = "Đang tạo tài khoản...";
-                
-                AuthManager.Instance.Register(registerEmailInput.text, registerPasswordInput.text, registerUsernameInput.text,
-                    (successMsg) => {
-                        ShowMessageBox("Thành công", successMsg);
-                        if (errorText != null) errorText.text = "";
-                        SwitchToLogin(); 
-                    },
-                    (errorMsg) => {
-                        ShowMessageBox("Đăng ký thất bại", errorMsg);
-                        if (errorText != null) errorText.text = "";
-                    });
-            }
-        });
+                SwitchToLogin();
+            },
+            (error) => {
+                ShowMessageBox("Đăng ký thất bại", error);
+                if (errorText != null) errorText.text = "";
+            });
     }
 
-    // ==================== XỬ LÝ KHÔI PHỤC MẬT KHẨU ====================
+    // ==================== QUÊN MẬT KHẨU ====================
     public void OnSendForgotPasswordClicked()
     {
         if (string.IsNullOrEmpty(forgotPasswordEmailInput.text))
@@ -134,13 +110,12 @@ public class LoginUI : MonoBehaviour
 
         AuthManager.Instance.ForgotPassword(forgotPasswordEmailInput.text,
             (successMsg) => {
-                string thongBao = "Hệ thống đã gửi một đường link khôi phục đến Email của bạn.\n\nVui lòng mở hộp thư (kể cả mục Spam/Thư rác) và bấm vào link để tạo mật khẩu mới!";
-                ShowMessageBox("Kiểm tra Email", thongBao);
+                ShowMessageBox("Kiểm tra Email", "Hệ thống đã gửi yêu cầu khôi phục. Hãy kiểm tra hộp thư!");
                 if (errorText != null) errorText.text = "";
-                SwitchToLogin(); 
+                SwitchToLogin();
             },
-            (errorMsg) => {
-                ShowMessageBox("Lỗi", errorMsg);
+            (error) => {
+                ShowMessageBox("Lỗi", error);
                 if (errorText != null) errorText.text = "";
             });
     }
@@ -152,10 +127,8 @@ public class LoginUI : MonoBehaviour
         SetPanelVisibility(registerFormGroup, true);
         SetPanelVisibility(forgotPasswordGroup, false);
         
-        // --- XÓA TRẮNG THÔNG TIN FORM ĐĂNG NHẬP KHI CHUYỂN SANG ĐĂNG KÝ ---
         if (loginEmailInput != null) loginEmailInput.text = "";
         if (loginPasswordInput != null) loginPasswordInput.text = "";
-        
         if (errorText != null) errorText.text = "";
     }
 
@@ -166,11 +139,9 @@ public class LoginUI : MonoBehaviour
         SetPanelVisibility(loginFormGroup, true);
         SetPanelVisibility(forgotPasswordGroup, false);
         
-        // --- XÓA TRẮNG THÔNG TIN FORM ĐĂNG KÝ KHI QUAY LẠI ĐĂNG NHẬP ---
         if (registerEmailInput != null) registerEmailInput.text = "";
         if (registerPasswordInput != null) registerPasswordInput.text = "";
         if (registerUsernameInput != null) registerUsernameInput.text = "";
-        
         if (errorText != null) errorText.text = "";
     }
 
@@ -216,10 +187,6 @@ public class LoginUI : MonoBehaviour
                 cg.interactable = true;
                 cg.blocksRaycasts = true;
             }
-        }
-        else
-        {
-            Debug.LogError("[LoginUI] LỖI: messageBoxPanel bị null! Bạn chưa kéo Panel vào Inspector.");
         }
     }
 
