@@ -1,23 +1,25 @@
 using UnityEngine;
 using UnityEngine.UI;
-using System.Collections; // Cần thư viện này để dùng Coroutine
+using TMPro; 
+using System.Collections; 
 
 public class Shooting : MonoBehaviour
 {
     private Camera mainCam;
+    private GameManager gameManager; 
 
     [Header("References")]
-    public Transform weaponPivot;        
-    public Transform bulletTransform;    
+    public Transform weaponPivot;        // Kéo bệ súng (GunPivot) vào đây
+    public Transform bulletTransform;    // Kéo Muzzle (đầu nòng súng) vào đây
     public GameObject bullet;            
     public Bullet _bullet;               
     
     [Header("Muzzle Flash")]
-    public ParticleSystem muzzleFlash;   // KÉO OBJECT MUZZLEFLASH VÀO ĐÂY
-    public float flashDuration = 0.05f;  // Thời gian lửa hiện ra
+    public ParticleSystem muzzleFlash;   
+    public float flashDuration = 0.05f;  
 
     [Header("Weapon Aim Settings")]
-    public float maxAimDistance = 100f;
+    public float maxAimDistance = 1000f; 
     public float weaponRotateSpeed = 15f; 
 
     [Header("UI Crosshair Settings")]
@@ -27,6 +29,18 @@ public class Shooting : MonoBehaviour
     public float crosshairExpandSpeed = 15f; 
     public float crosshairShrinkSpeed = 8f;  
     private float currentCrosshairSize;
+
+    [Header("Ammo & Magazine Settings")]
+    public int magazineSize = 30;       
+    public int currentAmmo;             
+    public int maxReserveAmmo = 100;    
+    public int currentReserveAmmo;      
+    public float reloadTime = 2f;
+    public bool isReloading = false;
+    
+    [Header("UI Ammo Settings")]
+    public TextMeshProUGUI ammoText; 
+    public CanvasGroup ammoCanvasGroup; 
 
     [Header("Firing Settings")]
     public bool canFire = true;
@@ -49,7 +63,12 @@ public class Shooting : MonoBehaviour
     void Start()
     {
         mainCam = Camera.main;
+        gameManager = FindFirstObjectByType<GameManager>(); 
         currentSpread = baseSpread;
+
+        currentAmmo = magazineSize;
+        currentReserveAmmo = maxReserveAmmo;
+        UpdateAmmoUI();
 
         if (crosshairUI != null)
         {
@@ -66,20 +85,40 @@ public class Shooting : MonoBehaviour
         HandleCooldown();
         HandleSpreadRecovery();
         HandleCrosshairAnimation(); 
+
+        if (Input.GetKeyDown(KeyCode.R) && !isReloading && currentAmmo < magazineSize && currentReserveAmmo > 0)
+        {
+            StartCoroutine(Reload());
+        }
     }
 
+    // XOAY BỆ SÚNG THEO CAMERA (LÊN, XUỐNG, TRÁI, PHẢI)
     void RotateWeaponPivot()
     {
         if (weaponPivot == null || mainCam == null) return;
+        
+        // Xoay toàn bộ bệ súng theo hướng Camera
         Quaternion cameraRotation = mainCam.transform.rotation;
         weaponPivot.rotation = Quaternion.Slerp(weaponPivot.rotation, cameraRotation, Time.deltaTime * weaponRotateSpeed);
     }
 
     void HandleFiring()
     {
+        if (gameManager != null && gameManager.isMenuOpen) return;
+        if (isReloading) return;
+
         if (Input.GetMouseButton(0) && canFire && !isBursting)
         {
-            canFire = false;
+            if (currentAmmo <= 0)
+            {
+                if (currentReserveAmmo > 0) StartCoroutine(Reload());
+                return;
+            }
+
+            canFire = false; 
+            currentAmmo--;
+            UpdateAmmoUI();
+            
             StartBurst();
         }
     }
@@ -91,7 +130,7 @@ public class Shooting : MonoBehaviour
             timer += Time.deltaTime;
             if (timer > timeBetweenBullets)
             {
-                canFire = true;
+                canFire = true; 
                 timer = 0f;
             }
         }
@@ -134,50 +173,92 @@ public class Shooting : MonoBehaviour
 
     void FireBullet()
     {
-        if (bulletTransform == null || bullet == null) return;
+        if (bulletTransform == null || bullet == null || currentAmmo <= 0) return;
 
-        // --- HIỆU ỨNG LỬA ĐẦU NÒNG ---
         if (muzzleFlash != null)
         {
-            muzzleFlash.Play(); // Bật lửa
-            StartCoroutine(StopMuzzleFlash()); // Tự động tắt sau vài mili giây
+            muzzleFlash.Play(); 
+            StartCoroutine(StopMuzzleFlash()); 
         }
 
-        // 1. Bắn tia từ Camera qua tâm màn hình
+       
+
         Ray ray = mainCam.ScreenPointToRay(new Vector3(Screen.width / 2f, Screen.height / 2f, 0));
-        Vector3 targetPoint;
-        
-        if (Physics.Raycast(ray, out RaycastHit hit, maxAimDistance))
-            targetPoint = hit.point;
-        else
-            targetPoint = ray.GetPoint(maxAimDistance);
+        Vector3 fireDirection = ray.direction;
 
-        // 2. Tính hướng bay
-        Vector3 fireDirection = (targetPoint - bulletTransform.position).normalized;
-
-        // 3. Thêm độ tản
         float randomSpreadY = Random.Range(-currentSpread, currentSpread);
         float randomSpreadX = Random.Range(-currentSpread, currentSpread);
         fireDirection = Quaternion.Euler(randomSpreadX, randomSpreadY, 0f) * fireDirection;
 
-        // 4. Tạo đạn
-        GameObject newBullet = Instantiate(bullet, bulletTransform.position, Quaternion.LookRotation(fireDirection));
+        Quaternion bulletRotation = Quaternion.LookRotation(fireDirection);
+
+        GameObject newBullet = Instantiate(bullet, bulletTransform.position, bulletRotation);
         
         if (_bullet != null && newBullet.GetComponent<Bullet>() != null)
             newBullet.GetComponent<Bullet>().damage = _bullet.damage;
 
-        // 5. Tăng độ tản
         currentSpread = Mathf.Min(currentSpread + spreadIncreasePerShot, maxSpread);
     }
 
-    // Coroutine để tắt lửa sau một khoảng thời gian ngắn
+    IEnumerator Reload()
+    {
+        isReloading = true;
+        if (ammoText != null) ammoText.text = "Reloading...";
+
+        if (ammoCanvasGroup != null)
+        {
+            float elapsed = 0f;
+            while (elapsed < reloadTime / 2f)
+            {
+                elapsed += Time.deltaTime;
+                ammoCanvasGroup.alpha = Mathf.Lerp(1f, 0.2f, elapsed / (reloadTime / 2f));
+                yield return null;
+            }
+
+            yield return new WaitForSeconds(reloadTime / 2f);
+
+            elapsed = 0f;
+            while (elapsed < reloadTime / 2f)
+            {
+                elapsed += Time.deltaTime;
+                ammoCanvasGroup.alpha = Mathf.Lerp(0.2f, 1f, elapsed / (reloadTime / 2f));
+                yield return null;
+            }
+            ammoCanvasGroup.alpha = 1f; 
+        }
+        else
+        {
+            yield return new WaitForSeconds(reloadTime);
+        }
+
+        int ammoNeeded = magazineSize - currentAmmo; 
+        if (currentReserveAmmo >= ammoNeeded)
+        {
+            currentAmmo += ammoNeeded;
+            currentReserveAmmo -= ammoNeeded;
+        }
+        else
+        {
+            currentAmmo += currentReserveAmmo;
+            currentReserveAmmo = 0;
+        }
+
+        isReloading = false;
+        UpdateAmmoUI();
+    }
+
+    void UpdateAmmoUI()
+    {
+        if (ammoText != null)
+        {
+            ammoText.text = $"{currentAmmo} / {currentReserveAmmo}";
+        }
+    }
+
     IEnumerator StopMuzzleFlash()
     {
         yield return new WaitForSeconds(flashDuration);
-        if (muzzleFlash != null)
-        {
-            muzzleFlash.Stop();
-        }
+        if (muzzleFlash != null) muzzleFlash.Stop();
     }
 
     void HandleCrosshairAnimation()
@@ -188,4 +269,4 @@ public class Shooting : MonoBehaviour
         currentCrosshairSize = Mathf.Lerp(currentCrosshairSize, targetSize, Time.deltaTime * speed);
         crosshairUI.sizeDelta = new Vector2(currentCrosshairSize, currentCrosshairSize);
     }
-}
+}   
