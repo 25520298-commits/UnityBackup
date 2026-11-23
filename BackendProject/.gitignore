@@ -1,0 +1,15 @@
+@"
+bin/
+obj/
+publish/
+.vs/
+.idea/
+*.user
+*.suo
+*.db
+*.db-shm
+*.db-wal
+appsettings.Development.json
+appsettings.Production.json
+appsettings.json
+"@ | Out-File -FilePath .gitignore -Encoding utf8

@@ -107,3 +107,12 @@ InitTestScene*.unity*
 
 # Auto-generated cache in Assets folder
 /[Aa]ssets/[Ss]ceneDependencyCache*
+
+# --- ASP.NET Core Backend ---
+BackendProject/**/bin/
+BackendProject/**/obj/
+BackendProject/**/*.db
+BackendProject/**/*.db-shm
+BackendProject/**/*.db-wal
+BackendProject/**/appsettings.Development.json
+.idea/
