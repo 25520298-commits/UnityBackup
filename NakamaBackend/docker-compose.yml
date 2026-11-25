@@ -1,0 +1,39 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: fps_nakama_postgres
+    environment:
+      ASPNET_JWT_SECRET: "DayLaMotCaiKeyCucKyDaiVaBaoMatChoDoAnMonHoc1234#!@#"
+      POSTGRES_DB: nakama
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: localpassword123
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d nakama"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  nakama:
+    image: heroiclabs/nakama:3.24.2
+    container_name: fps_nakama_server
+    depends_on:
+      postgres:
+        condition: service_healthy
+    entrypoint:
+      - "/bin/sh"
+      - "-ecx"
+      - >
+        /nakama/nakama migrate up --database.address postgres:localpassword123@postgres:5432/nakama &&
+        exec /nakama/nakama --name fps-nakama-1 --database.address postgres:localpassword123@postgres:5432/nakama --runtime.path /nakama/data/modules --socket.server_key defaultkey
+    volumes:
+      - ./build:/nakama/data/modules
+    ports:
+      - "7350:7350"
+      - "7351:7351"
+    restart: unless-stopped
+
+volumes:
+  pg_data:
