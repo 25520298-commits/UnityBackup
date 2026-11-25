@@ -1,10 +1,8 @@
 using UnityEngine;
+using UnityEngine.Networking;
+using System.Collections;
+using System.Text;
 using PlayFab;
-using PlayFab.ClientModels;
-using UnityEngine.SceneManagement;
-using System;
-using System.Collections.Generic;
-using System.Text.RegularExpressions;
 
 public class AuthManager : MonoBehaviour
 {
@@ -12,187 +10,272 @@ public class AuthManager : MonoBehaviour
 
     public bool IsLoggedIn { get; private set; } = false;
     public string PlayFabId { get; private set; }
-    public string PlayerDisplayName { get; private set; } 
+    public string PlayerDisplayName { get; private set; }
 
-    [Header("Scene Settings")]
-    public string loginSceneName = "UI"; 
-    public string gameSceneName = "MainMenuUI"; 
+    [Header("Backend Settings")]
+    [Tooltip("Địa chỉ IP/URL của Backend (VD: http://IP_AZURE/api/Auth hoặc https://tenmien.duckdns.org/api/Auth)")]
+    public string backendUrl = "http://localhost:5259/api/Auth";
 
-    private void Awake()
+    private string jwtToken;
+
+    void Awake()
     {
-        if (Instance != null && Instance != this)
-        {
-            Destroy(gameObject);
-            return;
-        }
+        if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
         DontDestroyOnLoad(gameObject);
+    }
 
-        if (string.IsNullOrEmpty(PlayFabSettings.TitleId))
+    // ==================== 1. ĐĂNG NHẬP ====================
+    public void Login(string email, string password, System.Action<string> onError, System.Action onSuccess)
+    {
+        StartCoroutine(LoginRoutine(email, password, onError, onSuccess));
+    }
+
+    IEnumerator LoginRoutine(string email, string password, System.Action<string> onError, System.Action onSuccess)
+    {
+        var loginData = new LoginRequestDTO { Email = email, Password = password };
+        string json = JsonUtility.ToJson(loginData);
+
+        using (UnityWebRequest req = new UnityWebRequest($"{backendUrl}/login", "POST"))
         {
-            PlayFabSettings.TitleId = "1703F9"; 
+            byte[] body = Encoding.UTF8.GetBytes(json);
+            req.uploadHandler = new UploadHandlerRaw(body);
+            req.downloadHandler = new DownloadHandlerBuffer();
+            req.SetRequestHeader("Content-Type", "application/json");
+
+            yield return req.SendWebRequest();
+
+            string responseText = req.downloadHandler.text;
+
+            if (req.result != UnityWebRequest.Result.Success)
+            {
+                if (req.responseCode == 429)
+                {
+                    onError?.Invoke("Bạn thao tác quá nhanh, vui lòng thử lại sau 1 phút!");
+                    yield break;
+                }
+
+                var errObj = TryParseServerMessage(responseText);
+                onError?.Invoke(!string.IsNullOrEmpty(errObj?.message) ? errObj.message : "Sai tài khoản hoặc mật khẩu!");
+                yield break;
+            }
+
+            var response = JsonUtility.FromJson<LoginResponseDTO>(responseText);
+            jwtToken = response.token;
+            PlayerDisplayName = response.username;
+            PlayFabId = response.playFabId;
+
+            PlayFabSettings.staticPlayer.ClientSessionTicket = response.sessionTicket;
+            PlayFabSettings.staticPlayer.PlayFabId = response.playFabId;
+            PlayFabSettings.staticPlayer.EntityToken = response.entityToken;
+
+            IsLoggedIn = true;
+            onSuccess?.Invoke();
         }
     }
 
-    // ==================== HÀM KIỂM TRA ĐỊNH DẠNG ====================
-    public bool IsValidEmail(string email)
+    // ==================== 2. ĐĂNG KÝ ====================
+    public void Register(string email, string password, string username, System.Action<string> onSuccess, System.Action<string> onError)
     {
-        if (string.IsNullOrWhiteSpace(email)) return false;
-        string pattern = @"^[^@\s]+@[^@\s]+\.[^@\s]+$";
-        return Regex.IsMatch(email, pattern);
+        StartCoroutine(RegisterRoutine(email, password, username, onSuccess, onError));
     }
 
-    public bool IsValidUsername(string username)
+    IEnumerator RegisterRoutine(string email, string password, string username, System.Action<string> onSuccess, System.Action<string> onError)
     {
-        if (string.IsNullOrWhiteSpace(username)) return false;
-        if (username.Length < 3 || username.Length > 25) return false;
-        string pattern = @"^[a-zA-Z0-9_]+$";
-        return Regex.IsMatch(username, pattern);
-    }
+        var registerData = new RegisterRequestDTO { Email = email, Password = password, Username = username };
+        string json = JsonUtility.ToJson(registerData);
 
-    public bool IsValidPassword(string password)
-    {
-        return !string.IsNullOrEmpty(password) && password.Length >= 8;
-    }
-
-    // ==================== ĐĂNG NHẬP ====================
-    public void Login(string email, string password, Action<string> onError, Action onSuccess)
-    {
-        // Chặn spam nếu email sai định dạng (UI sẽ xử lý thông báo)
-        if (!IsValidEmail(email))
+        using (UnityWebRequest req = new UnityWebRequest($"{backendUrl}/register", "POST"))
         {
-            onError?.Invoke("Định dạng Email không hợp lệ!");
-            return; 
+            byte[] body = Encoding.UTF8.GetBytes(json);
+            req.uploadHandler = new UploadHandlerRaw(body);
+            req.downloadHandler = new DownloadHandlerBuffer();
+            req.SetRequestHeader("Content-Type", "application/json");
+
+            yield return req.SendWebRequest();
+
+            string responseText = req.downloadHandler.text;
+            var parsed = TryParseServerMessage(responseText);
+
+            if (req.result == UnityWebRequest.Result.Success)
+            {
+                onSuccess?.Invoke(parsed?.message ?? "Tạo tài khoản thành công!");
+            }
+            else
+            {
+                if (req.responseCode == 429)
+                {
+                    onError?.Invoke("Bạn thao tác quá nhanh, vui lòng thử lại sau 1 phút!");
+                    yield break;
+                }
+
+                string serverMsg = !string.IsNullOrEmpty(parsed?.message) ? parsed.message : req.error;
+                onError?.Invoke("Lỗi: " + serverMsg);
+            }
         }
+    }
 
-        var request = new LoginWithEmailAddressRequest
+    // ==================== 3. QUÊN MẬT KHẨU (BƯỚC 1: GỬI MÃ VỀ EMAIL) ====================
+    public void ForgotPassword(string email, System.Action<string> onSuccess, System.Action<string> onError)
+    {
+        StartCoroutine(ForgotRoutine(email, onSuccess, onError));
+    }
+
+    IEnumerator ForgotRoutine(string email, System.Action<string> onSuccess, System.Action<string> onError)
+    {
+        var forgotData = new ForgotPasswordRequestDTO { Email = email };
+        string json = JsonUtility.ToJson(forgotData);
+
+        using (UnityWebRequest req = new UnityWebRequest($"{backendUrl}/forgot-password", "POST"))
         {
-            Email = email,
-            Password = password,
-            InfoRequestParameters = new GetPlayerCombinedInfoRequestParams { GetPlayerProfile = true }
-        };
+            byte[] body = Encoding.UTF8.GetBytes(json);
+            req.uploadHandler = new UploadHandlerRaw(body);
+            req.downloadHandler = new DownloadHandlerBuffer();
+            req.SetRequestHeader("Content-Type", "application/json");
 
-        PlayFabClientAPI.LoginWithEmailAddress(request, 
-            result => {
-                IsLoggedIn = true;
-                PlayFabId = result.PlayFabId;
+            yield return req.SendWebRequest();
 
-                if (result.InfoResultPayload != null && result.InfoResultPayload.PlayerProfile != null)
+            string responseText = req.downloadHandler.text;
+            var parsed = TryParseServerMessage(responseText);
+
+            if (req.result == UnityWebRequest.Result.Success)
+            {
+                if (!string.IsNullOrEmpty(parsed?.devToken))
+                    Debug.Log($"<color=yellow>[DEV] Mã khôi phục của bạn là: {parsed.devToken}</color>");
+
+                onSuccess?.Invoke(parsed?.message ?? "Mã khôi phục đã được gửi vào email!");
+            }
+            else
+            {
+                if (req.responseCode == 429)
                 {
-                    PlayerDisplayName = result.InfoResultPayload.PlayerProfile.DisplayName;
+                    onError?.Invoke("Bạn gửi yêu cầu quá nhanh, vui lòng đợi 1 phút!");
+                    yield break;
                 }
-                
-                onSuccess?.Invoke(); // Gọi callback thành công
-                SceneManager.LoadScene(gameSceneName);
-            }, 
-            error => {
-                if (error.Error == PlayFabErrorCode.InvalidParams || 
-                    error.Error == PlayFabErrorCode.AccountNotFound || 
-                    error.Error == PlayFabErrorCode.InvalidEmailOrPassword)
-                {
-                    onError?.Invoke("Sai email hoặc mật khẩu.");
-                }
-                else
-                {
-                    onError?.Invoke("Lỗi kết nối: " + error.ErrorMessage);
-                }
-            });
+
+                string serverMsg = !string.IsNullOrEmpty(parsed?.message) ? parsed.message : req.error;
+                onError?.Invoke("Lỗi: " + serverMsg);
+            }
+        }
     }
 
-    // ==================== ĐĂNG KÝ ====================
-    public void Register(string email, string password, string username, Action<string> onSuccess, Action<string> onError)
+    // ==================== 4. ĐẶT LẠI MẬT KHẨU (BƯỚC 2: NHẬP MÃ & MẬT KHẨU MỚI) ====================
+    public void ResetPassword(string token, string newPassword, System.Action<string> onSuccess, System.Action<string> onError)
     {
-        if (!IsValidEmail(email)) { onError?.Invoke("Định dạng Email không hợp lệ!"); return; }
-        if (!IsValidUsername(username)) { onError?.Invoke("Tên đăng nhập 3-25 ký tự, không dấu!"); return; }
-        if (!IsValidPassword(password)) { onError?.Invoke("Mật khẩu phải từ 8 ký tự!"); return; }
+        StartCoroutine(ResetPasswordRoutine(token, newPassword, onSuccess, onError));
+    }
 
-        var request = new RegisterPlayFabUserRequest
+    IEnumerator ResetPasswordRoutine(string token, string newPassword, System.Action<string> onSuccess, System.Action<string> onError)
+    {
+        var resetData = new ResetPasswordRequestDTO { Token = token.Trim(), NewPassword = newPassword };
+        string json = JsonUtility.ToJson(resetData);
+
+        using (UnityWebRequest req = new UnityWebRequest($"{backendUrl}/reset-password", "POST"))
         {
-            Email = email,
-            Password = password,
-            Username = username,
-            RequireBothUsernameAndEmail = true 
-        };
+            byte[] body = Encoding.UTF8.GetBytes(json);
+            req.uploadHandler = new UploadHandlerRaw(body);
+            req.downloadHandler = new DownloadHandlerBuffer();
+            req.SetRequestHeader("Content-Type", "application/json");
 
-        PlayFabClientAPI.RegisterPlayFabUser(request, 
-            result => {
-                LoginAfterRegister(email, password, username, onSuccess, onError);
-            }, 
-            error => {
-                string errorMsg = error.ErrorMessage;
-                if (error.Error == PlayFabErrorCode.EmailAddressNotAvailable) errorMsg = "Email này đã được sử dụng!";
-                else if (error.Error == PlayFabErrorCode.UsernameNotAvailable) errorMsg = "Tên đăng nhập này đã có người sử dụng!";
-                onError?.Invoke(errorMsg);
-            });
+            yield return req.SendWebRequest();
+
+            string responseText = req.downloadHandler.text;
+            var parsed = TryParseServerMessage(responseText);
+
+            if (req.result == UnityWebRequest.Result.Success)
+            {
+                onSuccess?.Invoke(parsed?.message ?? "Đặt lại mật khẩu thành công!");
+            }
+            else
+            {
+                string serverMsg = !string.IsNullOrEmpty(parsed?.message) ? parsed.message : req.error;
+                onError?.Invoke("Lỗi: " + serverMsg);
+            }
+        }
     }
 
-    private void LoginAfterRegister(string email, string password, string username, Action<string> onSuccess, Action<string> onError)
+    // ==================== 5. ĐỔI MẬT KHẨU KHI ĐÃ ĐĂNG NHẬP (YÊU CẦU JWT) ====================
+    public void ChangePassword(string oldPassword, string newPassword, System.Action<string> onSuccess, System.Action<string> onError)
     {
-        var loginRequest = new LoginWithEmailAddressRequest { Email = email, Password = password };
-
-        PlayFabClientAPI.LoginWithEmailAddress(loginRequest,
-            loginResult => {
-                SetDisplayName(username, 
-                    () => {
-                        onSuccess?.Invoke("Tạo tài khoản thành công! Vui lòng đăng nhập.");
-                        PlayFabClientAPI.ForgetAllCredentials(); 
-                    },
-                    (displayError) => { onError?.Invoke("Lỗi đặt tên hiển thị: " + displayError); });
-            },
-            loginError => { onError?.Invoke("Lỗi đăng nhập tự động: " + loginError.ErrorMessage); });
-    }
-
-    private void SetDisplayName(string username, Action onSuccess, Action<string> onError)
-    {
-        var request = new UpdateUserTitleDisplayNameRequest { DisplayName = username };
-        PlayFabClientAPI.UpdateUserTitleDisplayName(request,
-            result => { onSuccess?.Invoke(); },
-            error => { onError?.Invoke(error.ErrorMessage); });
-    }
-
-    public void ForgotPassword(string email, Action<string> onSuccess, Action<string> onError)
-    {
-        if (!IsValidEmail(email)) { onError?.Invoke("Định dạng Email không hợp lệ!"); return; }
-
-        var request = new SendAccountRecoveryEmailRequest
+        if (string.IsNullOrEmpty(jwtToken))
         {
-            Email = email,
-            TitleId = PlayFabSettings.TitleId
-        };
-
-        PlayFabClientAPI.SendAccountRecoveryEmail(request, 
-            result => { onSuccess?.Invoke("Đã gửi email khôi phục!"); }, 
-            error => { onError?.Invoke("Không thể gửi email. Hãy kiểm tra lại địa chỉ Email."); });
+            onError?.Invoke("Bạn chưa đăng nhập!");
+            return;
+        }
+        StartCoroutine(ChangePasswordRoutine(oldPassword, newPassword, onSuccess, onError));
     }
 
-    public void CheckAccountExists(string email, Action<bool> onResult)
+    IEnumerator ChangePasswordRoutine(string oldPassword, string newPassword, System.Action<string> onSuccess, System.Action<string> onError)
     {
-        if (!IsValidEmail(email)) { onResult?.Invoke(false); return; }
+        var changeData = new ChangePasswordRequestDTO { OldPassword = oldPassword, NewPassword = newPassword };
+        string json = JsonUtility.ToJson(changeData);
 
-        var request = new LoginWithEmailAddressRequest
+        using (UnityWebRequest req = new UnityWebRequest($"{backendUrl}/change-password", "POST"))
         {
-            Email = email,
-            Password = "ThisIsAWrongPasswordForChecking123!" 
-        };
+            byte[] body = Encoding.UTF8.GetBytes(json);
+            req.uploadHandler = new UploadHandlerRaw(body);
+            req.downloadHandler = new DownloadHandlerBuffer();
+            req.SetRequestHeader("Content-Type", "application/json");
+            req.SetRequestHeader("Authorization", $"Bearer {jwtToken}");
 
-        PlayFabClientAPI.LoginWithEmailAddress(request,
-            result => { onResult?.Invoke(true); },
-            error => {
-                if (error.Error == PlayFabErrorCode.AccountNotFound) onResult?.Invoke(false);
-                else if (error.Error == PlayFabErrorCode.InvalidEmailOrPassword) onResult?.Invoke(true);
-                else onResult?.Invoke(false);
-            });
+            yield return req.SendWebRequest();
+
+            string responseText = req.downloadHandler.text;
+            var parsed = TryParseServerMessage(responseText);
+
+            if (req.result == UnityWebRequest.Result.Success)
+            {
+                onSuccess?.Invoke(parsed?.message ?? "Đổi mật khẩu thành công!");
+            }
+            else
+            {
+                string serverMsg = !string.IsNullOrEmpty(parsed?.message) ? parsed.message : req.error;
+                onError?.Invoke("Lỗi: " + serverMsg);
+            }
+        }
     }
 
+    // ==================== 6. ĐĂNG XUẤT ====================
+    // ==================== 6. ĐĂNG XUẤT ====================
     public void Logout()
     {
         IsLoggedIn = false;
         PlayFabId = null;
         PlayerDisplayName = null;
+        jwtToken = null;
+
+        PlayFabSettings.staticPlayer.ClientSessionTicket = null;
+        PlayFabSettings.staticPlayer.EntityToken = null;
+        PlayFabSettings.staticPlayer.PlayFabId = null;
+        PlayFabClientAPI.ForgetAllCredentials();
+
         PlayerPrefs.DeleteKey("PlayFabSessionTicket");
         PlayerPrefs.DeleteKey("PlayFabId");
         PlayerPrefs.Save();
-        PlayFabClientAPI.ForgetAllCredentials();
-        SceneManager.LoadScene(loginSceneName);
+
+        Debug.Log("<color=green>Đã đăng xuất!</color>");
     }
+
+    // ==================== HÀM PHỤ TRỢ PARSE JSON AN TOÀN ====================
+    private ServerMessageDTO TryParseServerMessage(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return null;
+        try
+        {
+            return JsonUtility.FromJson<ServerMessageDTO>(json);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    // ==================== CÁC LỚP DTO ====================
+    [System.Serializable] private class LoginRequestDTO { public string Email; public string Password; }
+    [System.Serializable] private class LoginResponseDTO { public string token; public string username; public string playFabId; public string sessionTicket; public string entityToken; }
+    [System.Serializable] private class RegisterRequestDTO { public string Email; public string Password; public string Username; }
+    [System.Serializable] private class ForgotPasswordRequestDTO { public string Email; }
+    [System.Serializable] private class ResetPasswordRequestDTO { public string Token; public string NewPassword; }
+    [System.Serializable] private class ChangePasswordRequestDTO { public string OldPassword; public string NewPassword; }
+    [System.Serializable] private class ServerMessageDTO { public string message; public string devToken; }
 }

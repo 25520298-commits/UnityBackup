@@ -49,6 +49,7 @@ public class MainMenuUI : MonoBehaviour
         }
     }
 
+    // ==================== NÚT CHƠI GAME ====================
     public void OnPlayGameClicked()
     {
         // Kiểm tra xem Scene TestPlace có tồn tại không
@@ -62,14 +63,23 @@ public class MainMenuUI : MonoBehaviour
         }
     }
 
+    // ==================== NÚT ĐĂNG XUẤT ====================
     public void OnLogoutClicked()
     {
         if (AuthManager.Instance != null)
         {
+            // Gọi hàm Logout của AuthManager mới (đã bao gồm việc xóa JWT và SessionTicket)
             AuthManager.Instance.Logout();
+            
+            // Load lại Scene LoginUI sau khi đăng xuất
+            if (Application.CanStreamedLevelBeLoaded("LoginUI"))
+            {
+                SceneManager.LoadScene("LoginUI");
+            }
         }
     }
 
+    // ==================== NÚT THOÁT GAME ====================
     public void OnExitClicked()
     {
         Debug.Log("Đang thoát game...");
