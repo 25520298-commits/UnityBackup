@@ -1,0 +1,11 @@
+{
+  "name": "fps-nakama-runtime",
+  "version": "1.0.0",
+  "scripts": {
+    "build": "tsc"
+  },
+  "devDependencies": {
+    "nakama-runtime": "https://github.com/heroiclabs/nakama-common",
+    "typescript": "^5.6.0"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "compilerOptions": {
+    "target": "es6",
+    "module": "none",
+    "outFile": "./build/index.js",
+    "strict": true,
+    "noImplicitAny": false,
+    "types": ["nakama-runtime"]
+  },
+  "include": ["src/**/*"]
+}
