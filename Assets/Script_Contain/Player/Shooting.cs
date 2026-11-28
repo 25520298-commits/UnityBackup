@@ -9,8 +9,8 @@ public class Shooting : MonoBehaviour
     private GameManager gameManager; 
 
     [Header("References")]
-    public Transform weaponPivot;        // Kéo bệ súng (GunPivot) vào đây
-    public Transform bulletTransform;    // Kéo Muzzle (đầu nòng súng) vào đây
+    public Transform weaponPivot;        
+    public Transform bulletTransform;    
     public GameObject bullet;            
     public Bullet _bullet;               
     
@@ -40,7 +40,8 @@ public class Shooting : MonoBehaviour
     
     [Header("UI Ammo Settings")]
     public TextMeshProUGUI ammoText; 
-    public CanvasGroup ammoCanvasGroup; 
+    public Image ammoIcon;              // THÊM DÒNG NÀY: Kéo Image icon viên đạn vào
+    public CanvasGroup ammoCanvasGroup; // Kéo Canvas Group chung vào
 
     [Header("Firing Settings")]
     public bool canFire = true;
@@ -92,12 +93,9 @@ public class Shooting : MonoBehaviour
         }
     }
 
-    // XOAY BỆ SÚNG THEO CAMERA (LÊN, XUỐNG, TRÁI, PHẢI)
     void RotateWeaponPivot()
     {
         if (weaponPivot == null || mainCam == null) return;
-        
-        // Xoay toàn bộ bệ súng theo hướng Camera
         Quaternion cameraRotation = mainCam.transform.rotation;
         weaponPivot.rotation = Quaternion.Slerp(weaponPivot.rotation, cameraRotation, Time.deltaTime * weaponRotateSpeed);
     }
@@ -118,7 +116,7 @@ public class Shooting : MonoBehaviour
             canFire = false; 
             currentAmmo--;
             UpdateAmmoUI();
-            
+
             StartBurst();
         }
     }
@@ -173,15 +171,13 @@ public class Shooting : MonoBehaviour
 
     void FireBullet()
     {
-        if (bulletTransform == null || bullet == null || currentAmmo <= 0) return;
+        if (bulletTransform == null || bullet == null) return;
 
         if (muzzleFlash != null)
         {
             muzzleFlash.Play(); 
             StartCoroutine(StopMuzzleFlash()); 
         }
-
-       
 
         Ray ray = mainCam.ScreenPointToRay(new Vector3(Screen.width / 2f, Screen.height / 2f, 0));
         Vector3 fireDirection = ray.direction;
@@ -200,13 +196,20 @@ public class Shooting : MonoBehaviour
         currentSpread = Mathf.Min(currentSpread + spreadIncreasePerShot, maxSpread);
     }
 
+    // ==================== HỆ THỐNG THAY ĐẠN (CÓ LÀM MỜ TEXT VÀ ICON) ====================
     IEnumerator Reload()
     {
         isReloading = true;
+        
+        // Đổi text thành "Đang thay đạn..." (Tùy chọn)
         if (ammoText != null) ammoText.text = "Reloading...";
+        
+        // Nếu có icon, có thể làm mờ icon đi một chút
+        if (ammoIcon != null) ammoIcon.color = new Color(ammoIcon.color.r, ammoIcon.color.g, ammoIcon.color.b, 0.5f);
 
         if (ammoCanvasGroup != null)
         {
+            // 1. Làm mờ dần (Fade Out) cả Text và Icon
             float elapsed = 0f;
             while (elapsed < reloadTime / 2f)
             {
@@ -217,6 +220,7 @@ public class Shooting : MonoBehaviour
 
             yield return new WaitForSeconds(reloadTime / 2f);
 
+            // 2. Làm đậm lại (Fade In)
             elapsed = 0f;
             while (elapsed < reloadTime / 2f)
             {
@@ -231,6 +235,10 @@ public class Shooting : MonoBehaviour
             yield return new WaitForSeconds(reloadTime);
         }
 
+        // Trả lại màu sắc bình thường cho icon
+        if (ammoIcon != null) ammoIcon.color = new Color(ammoIcon.color.r, ammoIcon.color.g, ammoIcon.color.b, 1f);
+
+        // Tính toán đạn
         int ammoNeeded = magazineSize - currentAmmo; 
         if (currentReserveAmmo >= ammoNeeded)
         {
@@ -269,4 +277,4 @@ public class Shooting : MonoBehaviour
         currentCrosshairSize = Mathf.Lerp(currentCrosshairSize, targetSize, Time.deltaTime * speed);
         crosshairUI.sizeDelta = new Vector2(currentCrosshairSize, currentCrosshairSize);
     }
-}   
+}

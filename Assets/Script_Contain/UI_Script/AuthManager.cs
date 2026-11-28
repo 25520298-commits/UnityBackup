@@ -13,8 +13,8 @@ public class AuthManager : MonoBehaviour
     public string PlayerDisplayName { get; private set; }
 
     [Header("Backend Settings")]
-    [Tooltip("Địa chỉ IP/URL của Backend (VD: http://IP_AZURE/api/Auth hoặc https://tenmien.duckdns.org/api/Auth)")]
-    public string backendUrl = "http://localhost:5259/api/Auth";
+    [Tooltip("Địa chỉ IP/URL của Backend (VD: http://IP_AZURE/api/Auth hoặc https://fpsgamebackend.duckdns.org/api/Auth)")]
+    public string backendUrl = "https://fpsgamebackend.duckdns.org/api/Auth";
 
     private string jwtToken;
 
@@ -159,15 +159,25 @@ public class AuthManager : MonoBehaviour
         }
     }
 
-    // ==================== 4. ĐẶT LẠI MẬT KHẨU (BƯỚC 2: NHẬP MÃ & MẬT KHẨU MỚI) ====================
-    public void ResetPassword(string token, string newPassword, System.Action<string> onSuccess, System.Action<string> onError)
+    // ==================== 4. ĐẶT LẠI MẬT KHẨU (BƯỚC 2: KIỂM TRA MÃ & ĐỔI MẬT KHẨU) ====================
+    public void ResetPassword(string email, string token, string newPassword, System.Action<string> onSuccess, System.Action<string> onError)
     {
-        StartCoroutine(ResetPasswordRoutine(token, newPassword, onSuccess, onError));
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            onError?.Invoke("Mã xác nhận không được để trống!");
+            return;
+        }
+        StartCoroutine(ResetPasswordRoutine(email, token, newPassword, onSuccess, onError));
     }
 
-    IEnumerator ResetPasswordRoutine(string token, string newPassword, System.Action<string> onSuccess, System.Action<string> onError)
+    IEnumerator ResetPasswordRoutine(string email, string token, string newPassword, System.Action<string> onSuccess, System.Action<string> onError)
     {
-        var resetData = new ResetPasswordRequestDTO { Token = token.Trim(), NewPassword = newPassword };
+        var resetData = new ResetPasswordRequestDTO
+        {
+            Email = email.Trim(),
+            Token = token.Trim(),
+            NewPassword = newPassword
+        };
         string json = JsonUtility.ToJson(resetData);
 
         using (UnityWebRequest req = new UnityWebRequest($"{backendUrl}/reset-password", "POST"))
@@ -188,6 +198,12 @@ public class AuthManager : MonoBehaviour
             }
             else
             {
+                if (req.responseCode == 429)
+                {
+                    onError?.Invoke("Bạn thao tác quá nhanh, vui lòng thử lại sau 1 phút!");
+                    yield break;
+                }
+
                 string serverMsg = !string.IsNullOrEmpty(parsed?.message) ? parsed.message : req.error;
                 onError?.Invoke("Lỗi: " + serverMsg);
             }
@@ -236,7 +252,6 @@ public class AuthManager : MonoBehaviour
     }
 
     // ==================== 6. ĐĂNG XUẤT ====================
-    // ==================== 6. ĐĂNG XUẤT ====================
     public void Logout()
     {
         IsLoggedIn = false;
@@ -275,7 +290,7 @@ public class AuthManager : MonoBehaviour
     [System.Serializable] private class LoginResponseDTO { public string token; public string username; public string playFabId; public string sessionTicket; public string entityToken; }
     [System.Serializable] private class RegisterRequestDTO { public string Email; public string Password; public string Username; }
     [System.Serializable] private class ForgotPasswordRequestDTO { public string Email; }
-    [System.Serializable] private class ResetPasswordRequestDTO { public string Token; public string NewPassword; }
+    [System.Serializable] private class ResetPasswordRequestDTO { public string Email; public string Token; public string NewPassword; }
     [System.Serializable] private class ChangePasswordRequestDTO { public string OldPassword; public string NewPassword; }
     [System.Serializable] private class ServerMessageDTO { public string message; public string devToken; }
 }
